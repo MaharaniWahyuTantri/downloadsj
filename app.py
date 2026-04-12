@@ -13,7 +13,7 @@ from collections import defaultdict
 import hashlib
 
 # ─────────────────────────────────────────────
-#  PAGE CONFIG
+#  PAGE CONFIG (harus di awal sebelum perintah Streamlit lainnya)
 # ─────────────────────────────────────────────
 st.set_page_config(
     page_title="Surat Jalan - Optimal",
@@ -23,7 +23,7 @@ st.set_page_config(
 )
 
 # ─────────────────────────────────────────────
-#  CSS (dipertahankan)
+#  CSS
 # ─────────────────────────────────────────────
 st.markdown("""
 <style>
@@ -84,7 +84,7 @@ div[data-testid="stExpander"] { border:1px solid #30363d !important;border-radiu
 # ─────────────────────────────────────────────
 #  KONSTANTA & KONFIGURASI
 # ─────────────────────────────────────────────
-MAX_DOWNLOAD_WORKERS = 3          # default, bisa diubah di sidebar
+MAX_DOWNLOAD_WORKERS = 3
 REQUEST_TIMEOUT = 45
 MAX_RETRIES = 3
 PAGE_SIZE = 50
@@ -98,11 +98,9 @@ def normalize_nopol(v):
     return re.sub(r"\s+", "", str(v)).upper().strip()
 
 def normalize_kuantum(v):
-    """Lebih robust untuk format Indonesia / Eropa."""
     if pd.isna(v):
         return None
     s = str(v).strip()
-    # Hapus semua titik (pemisah ribuan) dan ganti koma dengan titik
     s = re.sub(r"\.", "", s)
     s = s.replace(",", ".")
     try:
@@ -110,7 +108,7 @@ def normalize_kuantum(v):
     except:
         return None
 
-def detect_col(df, keywords, allow_fallback=True):
+def detect_col(df, keywords):
     lower_cols = {c: c.lower() for c in df.columns}
     for c, cl in lower_cols.items():
         if any(k in cl for k in keywords):
@@ -140,7 +138,6 @@ def to_preview_url(link):
     return f"https://drive.google.com/file/d/{fid}/preview" if fid else None
 
 def is_pdf_content(content: bytes) -> bool:
-    """Cek magic bytes PDF: %PDF"""
     return content.startswith(b'%PDF')
 
 @retry(stop=stop_after_attempt(MAX_RETRIES),
@@ -186,9 +183,6 @@ def load_file(f) -> pd.DataFrame:
     except:
         return pd.read_excel(f)
 
-# ─────────────────────────────────────────────
-#  PREPARASI DATA DENGAN PILIHAN KOLOM MANUAL
-# ─────────────────────────────────────────────
 def prepare_filter(df: pd.DataFrame, manual_cols: dict) -> pd.DataFrame:
     nopol_col = manual_cols.get("nopol") or detect_col(df, ["nopol","no pol","plat"])
     kuantum_col = manual_cols.get("kuantum") or detect_col(df, ["kuantum","qty","volume"])
@@ -236,9 +230,6 @@ def match_by_nopol(df_filter, df_db):
     not_found = df_filter[~df_filter["NOPOL_KEY"].isin(found_keys)].copy()
     return matched.reset_index(drop=True), not_found.reset_index(drop=True)
 
-# ─────────────────────────────────────────────
-#  CACHE DOWNLOAD MANAGER (per session)
-# ─────────────────────────────────────────────
 class DownloadCache:
     def __init__(self):
         self.cache = {}
@@ -251,9 +242,6 @@ class DownloadCache:
     def clear(self):
         self.cache.clear()
 
-if "download_cache" not in st.session_state:
-    st.session_state.download_cache = DownloadCache()
-
 def download_with_cache(link):
     cached = st.session_state.download_cache.get(link)
     if cached is not None:
@@ -263,11 +251,7 @@ def download_with_cache(link):
         st.session_state.download_cache.set(link, content)
     return content
 
-# ─────────────────────────────────────────────
-#  BATCH DOWNLOAD DENGAN PROGRESS & CONCURRENT TERBATAS
-# ─────────────────────────────────────────────
 def batch_download(items: List[Tuple[int, str, str, str]], max_workers=3):
-    """items: list of (idx, nopol_key, kuantum_str, link)"""
     results = {}
     fails = []
     progress_bar = st.progress(0)
@@ -300,223 +284,226 @@ def batch_download(items: List[Tuple[int, str, str, str]], max_workers=3):
     return results, fails
 
 # ─────────────────────────────────────────────
-#  SIDEBAR UNTUK KOLOM MANUAL
-# ─────────────────────────────────────────────
-with st.sidebar:
-    st.markdown("## ⚙️ Pengaturan Kolom")
-    st.markdown("Jika deteksi otomatis gagal, pilih manual:")
-    col_nopol_f1 = st.selectbox("Kolom NOPOL (File 1)", options=["(Auto)"] + list(st.session_state.get("cols_f1", [])), key="col_nopol_f1")
-    col_kuantum_f1 = st.selectbox("Kolom KUANTUM (File 1)", options=["(Auto)"] + list(st.session_state.get("cols_f1", [])), key="col_kuantum_f1")
-    col_nopol_f2 = st.selectbox("Kolom NOPOL (File 2)", options=["(Auto)"] + list(st.session_state.get("cols_f2", [])), key="col_nopol_f2")
-    col_kuantum_f2 = st.selectbox("Kolom KUANTUM (File 2)", options=["(Auto)"] + list(st.session_state.get("cols_f2", [])), key="col_kuantum_f2")
-    col_link_f2 = st.selectbox("Kolom LINK (File 2)", options=["(Auto)"] + list(st.session_state.get("cols_f2", [])), key="col_link_f2")
-    st.markdown("---")
-    st.markdown("### 🚀 Optimasi")
-    max_workers = st.slider("Max concurrent download", 1, 8, MAX_DOWNLOAD_WORKERS)
-
-# ─────────────────────────────────────────────
 #  MAIN APP
 # ─────────────────────────────────────────────
-st.markdown('<div class="app-header"><div class="icon">🚛</div><div><h1>Surat Jalan — Filter & Download (Optimized)</h1><p>Batch download dengan cache, paginasi, dan seleksi massal</p></div></div>', unsafe_allow_html=True)
+def main():
+    # Inisialisasi session state
+    if "download_cache" not in st.session_state:
+        st.session_state.download_cache = DownloadCache()
+    if "matched_df" not in st.session_state:
+        st.session_state.matched_df = None
+    if "notfound_df" not in st.session_state:
+        st.session_state.notfound_df = None
+    if "page" not in st.session_state:
+        st.session_state.page = 0
+    if "cols_f1" not in st.session_state:
+        st.session_state.cols_f1 = []
+    if "cols_f2" not in st.session_state:
+        st.session_state.cols_f2 = []
 
-# Upload file
-col1, col2 = st.columns(2)
-with col1:
-    f1 = st.file_uploader("📋 File 1 - Target (Nopol dicari)", type=["xlsx","xls","csv"], key="f1")
-with col2:
-    f2 = st.file_uploader("🗄️ File 2 - Database Surat Jalan", type=["xlsx","xls","csv"], key="f2")
+    # Sidebar
+    with st.sidebar:
+        st.markdown("## ⚙️ Pengaturan Kolom")
+        st.markdown("Jika deteksi otomatis gagal, pilih manual:")
+        col_nopol_f1 = st.selectbox("Kolom NOPOL (File 1)", options=["(Auto)"] + list(st.session_state.cols_f1), key="col_nopol_f1")
+        col_kuantum_f1 = st.selectbox("Kolom KUANTUM (File 1)", options=["(Auto)"] + list(st.session_state.cols_f1), key="col_kuantum_f1")
+        col_nopol_f2 = st.selectbox("Kolom NOPOL (File 2)", options=["(Auto)"] + list(st.session_state.cols_f2), key="col_nopol_f2")
+        col_kuantum_f2 = st.selectbox("Kolom KUANTUM (File 2)", options=["(Auto)"] + list(st.session_state.cols_f2), key="col_kuantum_f2")
+        col_link_f2 = st.selectbox("Kolom LINK (File 2)", options=["(Auto)"] + list(st.session_state.cols_f2), key="col_link_f2")
+        st.markdown("---")
+        st.markdown("### 🚀 Optimasi")
+        max_workers = st.slider("Max concurrent download", 1, 8, MAX_DOWNLOAD_WORKERS)
 
-# Simpan nama kolom untuk sidebar
-if f1:
-    df1_sample = load_file(f1)
-    st.session_state["cols_f1"] = list(df1_sample.columns)
-if f2:
-    df2_sample = load_file(f2)
-    st.session_state["cols_f2"] = list(df2_sample.columns)
+    # Header
+    st.markdown('<div class="app-header"><div class="icon">🚛</div><div><h1>Surat Jalan — Filter & Download (Optimized)</h1><p>Batch download dengan cache, paginasi, dan seleksi massal</p></div></div>', unsafe_allow_html=True)
 
-do_process = st.button("⚙️ Proses & Filter", type="primary", use_container_width=False)
+    # Upload file
+    col1, col2 = st.columns(2)
+    with col1:
+        f1 = st.file_uploader("📋 File 1 - Target (Nopol dicari)", type=["xlsx","xls","csv"], key="f1")
+    with col2:
+        f2 = st.file_uploader("🗄️ File 2 - Database Surat Jalan", type=["xlsx","xls","csv"], key="f2")
 
-if do_process:
-    if not f1 or not f2:
-        st.warning("Upload kedua file terlebih dahulu.")
-    else:
-        with st.spinner("Memproses data..."):
-            df1 = load_file(f1)
-            df2 = load_file(f2)
-            manual_f1 = {}
-            if col_nopol_f1 != "(Auto)": manual_f1["nopol"] = col_nopol_f1
-            if col_kuantum_f1 != "(Auto)": manual_f1["kuantum"] = col_kuantum_f1
-            manual_f2 = {}
-            if col_nopol_f2 != "(Auto)": manual_f2["nopol"] = col_nopol_f2
-            if col_kuantum_f2 != "(Auto)": manual_f2["kuantum"] = col_kuantum_f2
-            if col_link_f2 != "(Auto)": manual_f2["link"] = col_link_f2
+    if f1:
+        df1_sample = load_file(f1)
+        st.session_state.cols_f1 = list(df1_sample.columns)
+    if f2:
+        df2_sample = load_file(f2)
+        st.session_state.cols_f2 = list(df2_sample.columns)
 
-            df_filter = prepare_filter(df1, manual_f1)
-            df_db, _ = prepare_database(df2, manual_f2)
-            if df_filter.empty or df_db.empty:
-                st.stop()
-            matched, not_found = match_by_nopol(df_filter, df_db)
-            st.session_state["matched_df"] = matched
-            st.session_state["notfound_df"] = not_found
-            st.session_state["page"] = 0
-        total_nopol = df_filter["NOPOL_KEY"].nunique()
-        found_nopol = matched["NOPOL_KEY"].nunique() if len(matched) else 0
-        st.success(f"✅ {found_nopol}/{total_nopol} nopol ditemukan, total {len(matched)} surat jalan.")
-        if len(not_found) > 0:
-            st.info(f"ℹ️ {len(not_found)} nopol tidak ditemukan.")
+    do_process = st.button("⚙️ Proses & Filter", type="primary", use_container_width=False)
 
-# Tampilkan hasil jika ada
-if "matched_df" in st.session_state and st.session_state["matched_df"] is not None:
-    matched = st.session_state["matched_df"]
-    not_found = st.session_state["notfound_df"]
+    if do_process:
+        if not f1 or not f2:
+            st.warning("Upload kedua file terlebih dahulu.")
+        else:
+            with st.spinner("Memproses data..."):
+                df1 = load_file(f1)
+                df2 = load_file(f2)
+                manual_f1 = {}
+                if col_nopol_f1 != "(Auto)": manual_f1["nopol"] = col_nopol_f1
+                if col_kuantum_f1 != "(Auto)": manual_f1["kuantum"] = col_kuantum_f1
+                manual_f2 = {}
+                if col_nopol_f2 != "(Auto)": manual_f2["nopol"] = col_nopol_f2
+                if col_kuantum_f2 != "(Auto)": manual_f2["kuantum"] = col_kuantum_f2
+                if col_link_f2 != "(Auto)": manual_f2["link"] = col_link_f2
 
-    # Pastikan kolom yang diperlukan ada (mencegah KeyError)
-    if "KUANTUM" not in matched.columns:
-        matched["KUANTUM"] = None
-    if "KUANTUM_F1" not in matched.columns:
-        matched["KUANTUM_F1"] = None
+                df_filter = prepare_filter(df1, manual_f1)
+                df_db, _ = prepare_database(df2, manual_f2)
+                if df_filter.empty or df_db.empty:
+                    st.stop()
+                matched, not_found = match_by_nopol(df_filter, df_db)
+                st.session_state.matched_df = matched
+                st.session_state.notfound_df = not_found
+                st.session_state.page = 0
+            total_nopol = df_filter["NOPOL_KEY"].nunique()
+            found_nopol = matched["NOPOL_KEY"].nunique() if len(matched) else 0
+            st.success(f"✅ {found_nopol}/{total_nopol} nopol ditemukan, total {len(matched)} surat jalan.")
+            if len(not_found) > 0:
+                st.info(f"ℹ️ {len(not_found)} nopol tidak ditemukan.")
 
-    # Statistik
-    total_trips = len(matched)
-    valid_trips = matched["VALID_LINK"].sum()
-    st.markdown(f"""
-    <div class="stats-bar">
-      <div class="stat-card"><div class="stat-num num-blue">{total_trips}</div><div class="stat-label">Total Surat Jalan</div></div>
-      <div class="stat-card"><div class="stat-num num-green">{valid_trips}</div><div class="stat-label">Link Valid</div></div>
-      <div class="stat-card"><div class="stat-num num-red">{total_trips - valid_trips}</div><div class="stat-label">Link Invalid</div></div>
-    </div>
-    """, unsafe_allow_html=True)
+    # Tampilkan hasil
+    if st.session_state.matched_df is not None:
+        matched = st.session_state.matched_df
+        not_found = st.session_state.notfound_df
 
-    # --- FILTER SECTION ---
-    st.markdown("### 🔍 Filter Data")
-    col_f1, col_f2, col_f3 = st.columns(3)
-    with col_f1:
-        search = st.text_input("🔍 Cari NOPOL", placeholder="Ketik nopol...", key="search_nopol")
-    with col_f2:
-        link_filter = st.selectbox("Status Link", options=["Semua", "Valid", "Invalid"], key="link_filter")
-    with col_f3:
-        min_q = st.number_input("Min Kuantum (kg)", value=0.0, step=100.0, key="min_q")
-        max_q = st.number_input("Max Kuantum (kg)", value=float('inf'), step=100.0, key="max_q")
-    
-    # Terapkan filter
-    filtered = matched.copy()
-    if search:
-        filtered = filtered[filtered["NOPOL_KEY"].str.contains(search.upper().replace(" ", ""), na=False)]
-    if link_filter == "Valid":
-        filtered = filtered[filtered["VALID_LINK"] == True]
-    elif link_filter == "Invalid":
-        filtered = filtered[filtered["VALID_LINK"] == False]
-    
-    # Filter kuantum (gunakan KUANTUM jika ada, fallback KUANTUM_F1)
-    kuantum_col = "KUANTUM" if "KUANTUM" in filtered.columns and filtered["KUANTUM"].notna().any() else "KUANTUM_F1"
-    if kuantum_col in filtered.columns:
-        # Hanya filter baris yang memiliki nilai kuantum
-        numeric_mask = filtered[kuantum_col].notna()
-        filtered.loc[numeric_mask, "_temp"] = filtered.loc[numeric_mask, kuantum_col]
-        filtered = filtered[(filtered["_temp"] >= min_q) | (filtered["_temp"].isna())]
-        if max_q != float('inf'):
-            filtered = filtered[(filtered["_temp"] <= max_q) | (filtered["_temp"].isna())]
-        if "_temp" in filtered.columns:
-            filtered = filtered.drop(columns=["_temp"])
-    
-    # Pagination
-    total_filtered = len(filtered)
-    page = st.session_state.get("page", 0)
-    total_pages = (total_filtered + PAGE_SIZE - 1) // PAGE_SIZE if total_filtered > 0 else 1
-    col_prev, col_page_info, col_next = st.columns([1,3,1])
-    with col_prev:
-        if st.button("◀ Sebelumnya", disabled=(page==0)):
-            st.session_state["page"] = max(0, page-1)
-            st.rerun()
-    with col_page_info:
-        st.markdown(f"<div style='text-align:center'>Halaman {page+1} dari {total_pages}</div>", unsafe_allow_html=True)
-    with col_next:
-        if st.button("Berikutnya ▶", disabled=(page>=total_pages-1)):
-            st.session_state["page"] = min(total_pages-1, page+1)
-            st.rerun()
+        if "KUANTUM" not in matched.columns:
+            matched["KUANTUM"] = None
+        if "KUANTUM_F1" not in matched.columns:
+            matched["KUANTUM_F1"] = None
 
-    # Render data_editor dengan filtered dataframe
-    start_idx = page * PAGE_SIZE
-    end_idx = min(start_idx + PAGE_SIZE, total_filtered)
-    if start_idx >= total_filtered:
-        start_idx = 0
-        end_idx = min(PAGE_SIZE, total_filtered)
-        st.session_state["page"] = 0
-        st.rerun()
-    page_df = filtered.iloc[start_idx:end_idx].copy()
-    page_df["Pilih"] = False
-    # Tampilkan data editor
-    edited_df = st.data_editor(
-        page_df,
-        column_config={
-            "Pilih": st.column_config.CheckboxColumn("Pilih", default=False),
-            "LINK": st.column_config.LinkColumn("Link", display_text="Buka"),
-            "VALID_LINK": st.column_config.CheckboxColumn("Valid?", disabled=True),
-            "KUANTUM": st.column_config.NumberColumn("Kuantum (kg)", format="%.0f"),
-            "KUANTUM_F1": st.column_config.NumberColumn("Target Kuantum", format="%.0f"),
-        },
-        hide_index=True,
-        use_container_width=True,
-        height=400,
-        key=f"data_editor_{page}"
-    )
-    selected_indices = edited_df[edited_df["Pilih"] == True].index.tolist()
-    # Peta ke index asli di filtered
-    original_global_indices = page_df.index.tolist()
-    selected_global = [original_global_indices[i] for i in selected_indices if i < len(original_global_indices)]
-    
-    st.caption(f"Menampilkan {len(page_df)} dari {total_filtered} baris (setelah filter).")
+        total_trips = len(matched)
+        valid_trips = matched["VALID_LINK"].sum()
+        st.markdown(f"""
+        <div class="stats-bar">
+          <div class="stat-card"><div class="stat-num num-blue">{total_trips}</div><div class="stat-label">Total Surat Jalan</div></div>
+          <div class="stat-card"><div class="stat-num num-green">{valid_trips}</div><div class="stat-label">Link Valid</div></div>
+          <div class="stat-card"><div class="stat-num num-red">{total_trips - valid_trips}</div><div class="stat-label">Link Invalid</div></div>
+        </div>
+        """, unsafe_allow_html=True)
 
-    # Tombol batch download
-    col_dl1, col_dl2 = st.columns(2)
-    with col_dl1:
-        if st.button("📦 Download Semua (Valid)", use_container_width=True):
-            valid_items = [(idx, row["NOPOL_KEY"], row.get("KUANTUM",""), row["LINK"])
-                           for idx, row in filtered[filtered["VALID_LINK"]==True].iterrows()]
-            if not valid_items:
-                st.warning("Tidak ada link valid pada hasil filter.")
-            else:
-                results, fails = batch_download(valid_items, max_workers=max_workers)
-                if results:
-                    files_dict = {fname: content for _, (fname, content) in results.items()}
-                    zip_data = generate_zip(files_dict)
-                    st.download_button("💾 Simpan ZIP (Semua Hasil Filter)", data=zip_data,
-                                       file_name="semua_surat_jalan.zip", mime="application/zip")
-                if fails:
-                    st.warning(f"{len(fails)} file gagal: {', '.join(fails[:5])}{'...' if len(fails)>5 else ''}")
-    with col_dl2:
-        if st.button("⬇️ Download Terpilih", use_container_width=True):
-            if not selected_global:
-                st.warning("Pilih minimal satu baris dengan checklist.")
-            else:
-                selected_rows = filtered.loc[selected_global]
-                selected_rows = selected_rows[selected_rows["VALID_LINK"]==True]
-                if selected_rows.empty:
-                    st.warning("Tidak ada link valid dari pilihan.")
+        # Filter
+        st.markdown("### 🔍 Filter Data")
+        col_f1, col_f2, col_f3 = st.columns(3)
+        with col_f1:
+            search = st.text_input("🔍 Cari NOPOL", placeholder="Ketik nopol...", key="search_nopol")
+        with col_f2:
+            link_filter = st.selectbox("Status Link", options=["Semua", "Valid", "Invalid"], key="link_filter")
+        with col_f3:
+            min_q = st.number_input("Min Kuantum (kg)", value=0.0, step=100.0, key="min_q")
+            max_q = st.number_input("Max Kuantum (kg)", value=float('inf'), step=100.0, key="max_q")
+
+        filtered = matched.copy()
+        if search:
+            filtered = filtered[filtered["NOPOL_KEY"].str.contains(search.upper().replace(" ", ""), na=False)]
+        if link_filter == "Valid":
+            filtered = filtered[filtered["VALID_LINK"] == True]
+        elif link_filter == "Invalid":
+            filtered = filtered[filtered["VALID_LINK"] == False]
+
+        kuantum_col = "KUANTUM" if "KUANTUM" in filtered.columns and filtered["KUANTUM"].notna().any() else "KUANTUM_F1"
+        if kuantum_col in filtered.columns:
+            temp_mask = filtered[kuantum_col].notna()
+            filtered.loc[temp_mask, "_temp"] = filtered.loc[temp_mask, kuantum_col]
+            filtered = filtered[(filtered["_temp"] >= min_q) | (filtered["_temp"].isna())]
+            if max_q != float('inf'):
+                filtered = filtered[(filtered["_temp"] <= max_q) | (filtered["_temp"].isna())]
+            if "_temp" in filtered.columns:
+                filtered = filtered.drop(columns=["_temp"])
+
+        total_filtered = len(filtered)
+        page = st.session_state.page
+        total_pages = (total_filtered + PAGE_SIZE - 1) // PAGE_SIZE if total_filtered > 0 else 1
+        if page >= total_pages:
+            page = total_pages - 1
+            st.session_state.page = page
+
+        col_prev, col_page_info, col_next = st.columns([1,3,1])
+        with col_prev:
+            if st.button("◀ Sebelumnya", disabled=(page==0)):
+                st.session_state.page = max(0, page-1)
+                st.rerun()
+        with col_page_info:
+            st.markdown(f"<div style='text-align:center'>Halaman {page+1} dari {total_pages}</div>", unsafe_allow_html=True)
+        with col_next:
+            if st.button("Berikutnya ▶", disabled=(page>=total_pages-1)):
+                st.session_state.page = min(total_pages-1, page+1)
+                st.rerun()
+
+        start_idx = page * PAGE_SIZE
+        end_idx = min(start_idx + PAGE_SIZE, total_filtered)
+        page_df = filtered.iloc[start_idx:end_idx].copy()
+        page_df["Pilih"] = False
+
+        edited_df = st.data_editor(
+            page_df,
+            column_config={
+                "Pilih": st.column_config.CheckboxColumn("Pilih", default=False),
+                "LINK": st.column_config.LinkColumn("Link", display_text="Buka"),
+                "VALID_LINK": st.column_config.CheckboxColumn("Valid?", disabled=True),
+                "KUANTUM": st.column_config.NumberColumn("Kuantum (kg)", format="%.0f"),
+                "KUANTUM_F1": st.column_config.NumberColumn("Target Kuantum", format="%.0f"),
+            },
+            hide_index=True,
+            use_container_width=True,
+            height=400,
+            key=f"data_editor_{page}"
+        )
+        selected_indices = edited_df[edited_df["Pilih"] == True].index.tolist()
+        original_global_indices = page_df.index.tolist()
+        selected_global = [original_global_indices[i] for i in selected_indices if i < len(original_global_indices)]
+
+        st.caption(f"Menampilkan {len(page_df)} dari {total_filtered} baris (setelah filter).")
+
+        col_dl1, col_dl2 = st.columns(2)
+        with col_dl1:
+            if st.button("📦 Download Semua (Valid)", use_container_width=True):
+                valid_items = [(idx, row["NOPOL_KEY"], row.get("KUANTUM",""), row["LINK"])
+                               for idx, row in filtered[filtered["VALID_LINK"]==True].iterrows()]
+                if not valid_items:
+                    st.warning("Tidak ada link valid pada hasil filter.")
                 else:
-                    items = [(idx, row["NOPOL_KEY"], row.get("KUANTUM",""), row["LINK"])
-                             for idx, row in selected_rows.iterrows()]
-                    results, fails = batch_download(items, max_workers=max_workers)
+                    results, fails = batch_download(valid_items, max_workers=max_workers)
                     if results:
                         files_dict = {fname: content for _, (fname, content) in results.items()}
                         zip_data = generate_zip(files_dict)
-                        st.download_button("💾 Simpan ZIP (Terpilih)", data=zip_data,
-                                           file_name="terpilih_surat_jalan.zip", mime="application/zip")
+                        st.download_button("💾 Simpan ZIP (Semua Hasil Filter)", data=zip_data,
+                                           file_name="semua_surat_jalan.zip", mime="application/zip")
                     if fails:
-                        st.error(f"Gagal download {len(fails)} file.")
+                        st.warning(f"{len(fails)} file gagal: {', '.join(fails[:5])}{'...' if len(fails)>5 else ''}")
+        with col_dl2:
+            if st.button("⬇️ Download Terpilih", use_container_width=True):
+                if not selected_global:
+                    st.warning("Pilih minimal satu baris dengan checklist.")
+                else:
+                    selected_rows = filtered.loc[selected_global]
+                    selected_rows = selected_rows[selected_rows["VALID_LINK"]==True]
+                    if selected_rows.empty:
+                        st.warning("Tidak ada link valid dari pilihan.")
+                    else:
+                        items = [(idx, row["NOPOL_KEY"], row.get("KUANTUM",""), row["LINK"])
+                                 for idx, row in selected_rows.iterrows()]
+                        results, fails = batch_download(items, max_workers=max_workers)
+                        if results:
+                            files_dict = {fname: content for _, (fname, content) in results.items()}
+                            zip_data = generate_zip(files_dict)
+                            st.download_button("💾 Simpan ZIP (Terpilih)", data=zip_data,
+                                               file_name="terpilih_surat_jalan.zip", mime="application/zip")
+                        if fails:
+                            st.error(f"Gagal download {len(fails)} file.")
 
-    # Tampilkan daftar invalid link di expander (dari filtered)
-    invalid_df = filtered[filtered["VALID_LINK"]==False][["NOPOL_RAW","KUANTUM","LINK"]].drop_duplicates()
-    if len(invalid_df) > 0:
-        with st.expander(f"⚠️ {len(invalid_df)} surat jalan dengan link tidak valid (pada hasil filter)"):
-            st.dataframe(invalid_df, use_container_width=True, hide_index=True)
+        invalid_df = filtered[filtered["VALID_LINK"]==False][["NOPOL_RAW","KUANTUM","LINK"]].drop_duplicates()
+        if len(invalid_df) > 0:
+            with st.expander(f"⚠️ {len(invalid_df)} surat jalan dengan link tidak valid (pada hasil filter)"):
+                st.dataframe(invalid_df, use_container_width=True, hide_index=True)
 
-    # Not found (tetap dari not_found asli)
-    if not_found is not None and len(not_found) > 0:
-        with st.expander(f"❌ {len(not_found)} nopol tidak ditemukan di database"):
-            st.dataframe(not_found[["NOPOL_RAW","KUANTUM_F1"]].rename(columns={"KUANTUM_F1":"Target Kuantum"}), use_container_width=True, hide_index=True)
+        if not_found is not None and len(not_found) > 0:
+            with st.expander(f"❌ {len(not_found)} nopol tidak ditemukan di database"):
+                st.dataframe(not_found[["NOPOL_RAW","KUANTUM_F1"]].rename(columns={"KUANTUM_F1":"Target Kuantum"}), use_container_width=True, hide_index=True)
 
-    # Tombol reset cache
-    if st.button("🗑️ Reset Cache Download", help="Hapus file PDF yang tersimpan sementara"):
-        st.session_state.download_cache.clear()
-        st.success("Cache dibersihkan.")
+        if st.button("🗑️ Reset Cache Download", help="Hapus file PDF yang tersimpan sementara"):
+            st.session_state.download_cache.clear()
+            st.success("Cache dibersihkan.")
+
+if __name__ == "__main__":
+    main()
