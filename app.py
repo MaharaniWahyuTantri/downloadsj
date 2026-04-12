@@ -11,68 +11,113 @@ st.set_page_config(page_title="Surat Jalan Filter", page_icon="🚛", layout="wi
 
 st.markdown("""
 <style>
-@import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;600&family=IBM+Plex+Sans:wght@300;400;600;700&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;600&display=swap');
 *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
-html, body, [class*="css"] { font-family: 'IBM Plex Sans', sans-serif; background: #0d1117; color: #e6edf3; }
-.stApp { background: #0d1117; }
+html, body, [class*="css"] { font-family: 'Inter', sans-serif; background: #f5f7fa; color: #1a202c; }
+.stApp { background: #f5f7fa; }
 
 .main-header {
-    background: linear-gradient(135deg,#161b22,#1c2128);
-    border:1px solid #30363d; border-radius:12px;
-    padding:24px 32px; margin-bottom:20px;
-    display:flex; align-items:center; gap:16px;
+    background: linear-gradient(135deg, #1e40af, #3b82f6);
+    border-radius: 14px;
+    padding: 24px 32px; margin-bottom: 20px;
+    display: flex; align-items: center; gap: 16px;
+    box-shadow: 0 4px 16px rgba(59,130,246,0.25);
 }
-.main-header h1 { font-size:1.7rem; font-weight:700; color:#f0f6fc; }
-.main-header p  { font-size:0.85rem; color:#8b949e; margin-top:4px; }
+.main-header h1 { font-size: 1.7rem; font-weight: 700; color: #fff; }
+.main-header p  { font-size: 0.85rem; color: rgba(255,255,255,0.75); margin-top: 4px; }
 
 .upload-card {
-    background:#161b22; border:1px solid #30363d;
-    border-radius:10px; padding:16px 20px; margin-bottom:8px;
+    background: #fff; border: 1px solid #e2e8f0;
+    border-radius: 10px; padding: 16px 20px; margin-bottom: 8px;
+    box-shadow: 0 1px 4px rgba(0,0,0,0.06);
 }
 .upload-card h3 {
-    font-size:0.8rem; font-weight:700; color:#58a6ff;
-    text-transform:uppercase; letter-spacing:1px; margin-bottom:4px;
+    font-size: 0.78rem; font-weight: 700; color: #3b82f6;
+    text-transform: uppercase; letter-spacing: 1px; margin-bottom: 4px;
 }
-.upload-card p { font-size:0.78rem; color:#8b949e; }
+.upload-card p { font-size: 0.78rem; color: #64748b; }
 
-.stat-grid { display:grid; grid-template-columns:repeat(4,1fr); gap:10px; margin:16px 0; }
+.stat-grid { display: grid; grid-template-columns: repeat(4,1fr); gap: 12px; margin: 16px 0; }
 .stat-card {
-    background:#161b22; border:1px solid #30363d;
-    border-radius:10px; padding:14px 18px; text-align:center;
+    background: #fff; border: 1px solid #e2e8f0;
+    border-radius: 12px; padding: 18px 20px; text-align: center;
+    box-shadow: 0 1px 4px rgba(0,0,0,0.06);
 }
-.stat-num { font-family:'IBM Plex Mono',monospace; font-size:1.8rem; font-weight:700; line-height:1; }
-.stat-lbl { font-size:0.72rem; color:#8b949e; margin-top:4px; text-transform:uppercase; letter-spacing:.5px; }
-.c-blue{color:#58a6ff} .c-green{color:#3fb950} .c-red{color:#f85149} .c-yellow{color:#d29922}
+.stat-num { font-family: 'JetBrains Mono', monospace; font-size: 2rem; font-weight: 700; line-height: 1; }
+.stat-lbl { font-size: 0.7rem; color: #94a3b8; margin-top: 6px; text-transform: uppercase; letter-spacing: .6px; font-weight: 500; }
+.c-blue   { color: #3b82f6; }
+.c-green  { color: #22c55e; }
+.c-red    { color: #ef4444; }
+.c-yellow { color: #f59e0b; }
 
 .warn-box {
-    background:#2a1f0a; border:1px solid #d2992244;
-    border-radius:8px; padding:14px 18px; margin:12px 0;
-    font-size:0.85rem; color:#d29922; line-height:1.6;
+    background: #fffbeb; border: 1px solid #fcd34d;
+    border-radius: 10px; padding: 14px 18px; margin: 12px 0;
+    font-size: 0.85rem; color: #92400e; line-height: 1.6;
 }
 .info-box {
-    background:#0d1f2a; border:1px solid #58a6ff44;
-    border-radius:8px; padding:14px 18px; margin:12px 0;
-    font-size:0.85rem; color:#58a6ff; line-height:1.6;
+    background: #eff6ff; border: 1px solid #bfdbfe;
+    border-radius: 10px; padding: 14px 18px; margin: 12px 0;
+    font-size: 0.85rem; color: #1e40af; line-height: 1.6;
 }
+.success-box {
+    background: #f0fdf4; border: 1px solid #86efac;
+    border-radius: 10px; padding: 14px 18px; margin: 12px 0;
+    font-size: 0.85rem; color: #14532d; line-height: 1.6;
+}
+.error-box {
+    background: #fef2f2; border: 1px solid #fca5a5;
+    border-radius: 10px; padding: 14px 18px; margin: 12px 0;
+    font-size: 0.85rem; color: #7f1d1d; line-height: 1.6;
+}
+
 .section-label {
-    font-size:0.72rem; text-transform:uppercase; letter-spacing:1.5px;
-    color:#8b949e; margin:20px 0 10px; display:flex; align-items:center; gap:8px;
+    font-size: 0.7rem; font-weight: 700; text-transform: uppercase;
+    letter-spacing: 1.5px; color: #94a3b8; margin: 24px 0 12px;
+    display: flex; align-items: center; gap: 10px;
 }
-.section-label::after { content:''; flex:1; height:1px; background:#30363d; }
+.section-label::after { content: ''; flex: 1; height: 1px; background: #e2e8f0; }
+
+.table-card {
+    background: #fff; border: 1px solid #e2e8f0;
+    border-radius: 12px; padding: 20px;
+    box-shadow: 0 1px 6px rgba(0,0,0,0.06); margin: 12px 0;
+}
+.table-card-red {
+    background: #fff; border: 1px solid #fca5a5;
+    border-radius: 12px; padding: 20px;
+    box-shadow: 0 1px 6px rgba(239,68,68,0.08); margin: 12px 0;
+}
+.table-card-yellow {
+    background: #fff; border: 1px solid #fcd34d;
+    border-radius: 12px; padding: 20px;
+    box-shadow: 0 1px 6px rgba(245,158,11,0.08); margin: 12px 0;
+}
+.table-title {
+    font-size: 0.92rem; font-weight: 700; margin-bottom: 14px;
+}
+.table-title-red  { color: #dc2626; }
+.table-title-yellow { color: #b45309; }
 
 .stButton > button {
-    background:#21262d !important; color:#e6edf3 !important;
-    border:1px solid #30363d !important; border-radius:7px !important;
-    font-size:0.8rem !important; padding:5px 12px !important; transition:all .15s !important;
+    background: #fff !important; color: #374151 !important;
+    border: 1px solid #d1d5db !important; border-radius: 8px !important;
+    font-size: 0.82rem !important; font-weight: 500 !important;
+    padding: 6px 14px !important; transition: all .15s !important;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.06) !important;
 }
 .stButton > button:hover {
-    background:#30363d !important; border-color:#58a6ff !important; color:#58a6ff !important;
+    background: #eff6ff !important; border-color: #3b82f6 !important;
+    color: #1d4ed8 !important;
 }
-div[data-testid="stFileUploader"] { background:#0d1117; border:1px dashed #30363d; border-radius:8px; }
-.stProgress > div > div { background:#58a6ff !important; }
+div[data-testid="stFileUploader"] {
+    background: #fff; border: 2px dashed #cbd5e1; border-radius: 10px;
+}
+.stProgress > div > div { background: #3b82f6 !important; }
 .stTextInput > div > div > input {
-    background:#161b22 !important; border:1px solid #30363d !important;
-    color:#e6edf3 !important; border-radius:7px !important;
+    background: #fff !important; border: 1px solid #d1d5db !important;
+    color: #1a202c !important; border-radius: 8px !important;
+    box-shadow: 0 1px 2px rgba(0,0,0,0.05) !important;
 }
 </style>
 """, unsafe_allow_html=True)
@@ -80,32 +125,22 @@ div[data-testid="stFileUploader"] { background:#0d1117; border:1px dashed #30363
 # ── UTILITIES ──────────────────────────────────────────────────────────────────
 
 def norm_nopol(v):
-    """Normalisasi nopol: hapus spasi berlebih, uppercase.
-    BE1235AD -> BE 1235 AD (tambah spasi antar bagian)
-    Handles: 'BE1235AD', 'BE 1235AD', 'BE1235 AD', 'BE 1235 AD' -> semua jadi 'BE 1235 AD'
-    """
     if v is None or (isinstance(v, float) and pd.isna(v)):
         return ''
     s = str(v).strip().upper()
-    # Hapus spasi berlebih dulu
     s = re.sub(r'\s+', ' ', s)
-    # Tambah spasi antara huruf-angka dan angka-huruf jika belum ada
-    # Misal: BE1235AD -> BE 1235 AD
     s = re.sub(r'([A-Z])(\d)', r'\1 \2', s)
     s = re.sub(r'(\d)([A-Z])', r'\1 \2', s)
-    # Hapus spasi berlebih lagi
     s = re.sub(r'\s+', ' ', s).strip()
     return s
 
 def norm_kuantum(v):
-    """Normalisasi kuantum ke integer."""
     try:
         return int(float(str(v).replace(',', '.').strip()))
     except:
         return None
 
 def find_col(df, kws):
-    """Cari kolom berdasarkan keyword (case insensitive, flexible)."""
     for col in df.columns:
         c = col.lower().replace(' ', '').replace('_', '')
         for k in kws:
@@ -161,21 +196,16 @@ def read_file(f):
     return pd.read_csv(f) if f.name.lower().endswith('.csv') else pd.read_excel(f)
 
 def load_file1(df):
-    """Load & normalisasi File 1 (NOPOL + KUANTUM)."""
-    # Cari kolom NOPOL (berbagai nama)
-    nc = find_col(df, ['nopol', 'nopol', 'nomor polisi', 'no pol', 'no.pol', 'nopolisi'])
+    nc = find_col(df, ['nopol', 'nomor polisi', 'no pol', 'no.pol', 'nopolisi'])
     if not nc:
         nc = find_col(df, ['pol'])
-    # Cari kolom KUANTUM (berbagai nama)
     kc = find_col(df, ['kuantum', 'quantum', 'tonase', 'tonage', 'qty', 'jumlah', 'volume', 'berat'])
-
     if not nc:
         st.error(f"❌ Kolom NOPOL tidak ditemukan di File 1. Kolom tersedia: {list(df.columns)}")
         return pd.DataFrame()
     if not kc:
         st.error(f"❌ Kolom KUANTUM/TONASE tidak ditemukan di File 1. Kolom tersedia: {list(df.columns)}")
         return pd.DataFrame()
-
     out = pd.DataFrame()
     out['nopol']   = df[nc].apply(norm_nopol)
     out['kuantum'] = df[kc].apply(norm_kuantum)
@@ -185,27 +215,19 @@ def load_file1(df):
     return out.reset_index(drop=True)
 
 def load_file2(raw_df):
-    """Load & normalisasi File 2 (NOPOL + KUANTUM + Link Surat Jalan)."""
     df = raw_df.copy()
     if df.empty:
         return pd.DataFrame()
-
-    # Deteksi apakah baris pertama adalah header duplikat
     first_row = df.iloc[0].tolist()
     has_header_row = any(str(v).upper().strip() in ['NOPOL', 'KUANTUM', 'FOTO SURAT JALAN'] for v in first_row)
     if has_header_row:
         df.columns = [str(c).strip() for c in df.iloc[0]]
         df = df[1:].reset_index(drop=True)
-
-    # Cari kolom NOPOL
     nc = find_col(df, ['nopol', 'nomor polisi', 'no pol', 'no.pol', 'nopolisi'])
     if not nc:
         nc = find_col(df, ['pol'])
-    # Cari kolom KUANTUM
     kc = find_col(df, ['kuantum', 'quantum', 'tonase', 'tonage', 'qty', 'jumlah', 'volume', 'berat'])
-    # Cari kolom Link Surat Jalan
     lc = find_col(df, ['surat jalan', 'suratjalan', 'foto surat', 'foto', 'link', 'url', 'drive', 'gdrive'])
-
     if not nc:
         st.error(f"❌ Kolom NOPOL tidak ditemukan di File 2. Kolom tersedia: {list(df.columns)}")
         return pd.DataFrame()
@@ -213,21 +235,16 @@ def load_file2(raw_df):
         st.error(f"❌ Kolom KUANTUM/TONASE tidak ditemukan di File 2. Kolom tersedia: {list(df.columns)}")
         return pd.DataFrame()
     if not lc:
-        st.error(f"❌ Kolom SURAT JALAN / link tidak ditemukan di File 2. Kolom tersedia: {list(df.columns)}")
+        st.error(f"❌ Kolom SURAT JALAN tidak ditemukan di File 2. Kolom tersedia: {list(df.columns)}")
         return pd.DataFrame()
-
     out = pd.DataFrame()
     out['nopol']       = df[nc].apply(lambda x: norm_nopol(str(x)) if pd.notna(x) else '')
     out['kuantum']     = df[kc].apply(norm_kuantum)
     out['surat_jalan'] = df[lc].astype(str).str.strip()
-
-    # Buang baris header yang ikut terbaca
     out = out[out['nopol'] != '']
     out = out[out['nopol'].str.upper() != 'NOPOL']
     out = out.dropna(subset=['kuantum'])
     out = out[out['kuantum'] > 0]
-
-    # Hanya simpan baris dengan link yang valid (http atau nama file .jpg/.pdf)
     valid_link = (
         out['surat_jalan'].str.startswith('http') |
         out['surat_jalan'].str.lower().str.endswith('.jpg') |
@@ -237,16 +254,16 @@ def load_file2(raw_df):
     out = out[valid_link].reset_index(drop=True)
     return out
 
-
 # ── SESSION STATE ──────────────────────────────────────────────────────────────
-for k in ['result_df', 'missing_df', 'active_preview', 'df2_debug', 'df1_debug']:
+for k in ['result_df', 'missing_df', 'nopol_diff_df', 'nopol_miss_df',
+          'active_preview', 'df2_debug', 'df1_debug']:
     if k not in st.session_state:
         st.session_state[k] = None
 
 # ── HEADER ─────────────────────────────────────────────────────────────────────
 st.markdown("""
 <div class="main-header">
-  <div style="font-size:2.2rem">🚛</div>
+  <div style="font-size:2.4rem">🚛</div>
   <div>
     <h1>Surat Jalan Filter</h1>
     <p>Match NOPOL + KUANTUM (ketat) → Preview &amp; Download Surat Jalan</p>
@@ -282,15 +299,12 @@ if process:
                 st.stop()
 
             # ── MATCH KETAT: NOPOL + KUANTUM harus sama persis ──
-            # df1 bisa punya duplikat (nopol+kuantum sama), df2 juga
-            # Untuk setiap row di df1, cari SEMUA match di df2
             result_rows = []
             for idx, row1 in df1.iterrows():
                 matches = df2[
                     (df2['nopol'] == row1['nopol']) &
                     (df2['kuantum'] == row1['kuantum'])
                 ]
-                # Filter hanya yang punya link http
                 http_matches = matches[matches['surat_jalan'].str.startswith('http')]
                 if len(http_matches) > 0:
                     for _, row2 in http_matches.iterrows():
@@ -309,8 +323,8 @@ if process:
                     })
 
             result = pd.DataFrame(result_rows)
-            found   = result[result['surat_jalan'].notna() & result['surat_jalan'].str.startswith('http', na=False)].copy().reset_index(drop=True)
-            # Missing: baris file1 yang tidak punya match sama sekali (deduplicate by f1 idx)
+            found = result[result['surat_jalan'].notna() & result['surat_jalan'].str.startswith('http', na=False)].copy().reset_index(drop=True)
+
             matched_f1_idx = set(found['_f1_idx'].tolist())
             missing_rows = []
             for idx, row1 in df1.iterrows():
@@ -318,97 +332,99 @@ if process:
                     missing_rows.append({'nopol': row1['nopol'], 'kuantum': row1['kuantum']})
             missing = pd.DataFrame(missing_rows).drop_duplicates(subset=['nopol','kuantum']).reset_index(drop=True)
 
-            st.session_state.result_df      = found
-            st.session_state.missing_df     = missing
-            st.session_state.df2_debug      = df2
-            st.session_state.df1_debug      = df1
-            st.session_state.active_preview = None
-
-            match_count = df1[df1.index.isin(matched_f1_idx)].drop_duplicates(subset=['nopol','kuantum']).shape[0]
-            st.success(f'✅ Selesai! {len(found)} surat jalan ditemukan untuk {match_count} entri unik dari {len(df1)} data File 1.')
-
-# ── RESULTS ────────────────────────────────────────────────────────────────────
-if st.session_state.result_df is not None:
-    found:   pd.DataFrame = st.session_state.result_df
-    missing: pd.DataFrame = st.session_state.missing_df
-    df2_all: pd.DataFrame = st.session_state.df2_debug
-    df1_all: pd.DataFrame = st.session_state.df1_debug
-    total_f1 = len(df1_all)
-
-    # SUMMARY
-    st.markdown('<div class="section-label">Ringkasan</div>', unsafe_allow_html=True)
-    unique_matched = len(found[['nopol','kuantum']].drop_duplicates())
-    st.markdown(f"""
-    <div class="stat-grid">
-      <div class="stat-card"><div class="stat-num c-blue">{total_f1}</div><div class="stat-lbl">Total File 1</div></div>
-      <div class="stat-card"><div class="stat-num c-green">{len(found)}</div><div class="stat-lbl">Surat Jalan Match</div></div>
-      <div class="stat-card"><div class="stat-num c-red">{len(missing)}</div><div class="stat-lbl">Tidak Match</div></div>
-      <div class="stat-card"><div class="stat-num c-yellow">{len(df2_all)}</div><div class="stat-lbl">Total File 2</div></div>
-    </div>
-    """, unsafe_allow_html=True)
-
-    # INFO tentang cara kerja match
-    st.markdown("""
-    <div class="info-box">
-    ℹ️ <b>Cara kerja match:</b> NOPOL <em>dan</em> KUANTUM harus <b>sama persis</b> di kedua file.
-    Normalisasi otomatis: spasi ganda → 1 spasi, case insensitive (BE1235AD = BE 1235 AD).
-    Satu NOPOL+KUANTUM di File 1 bisa menghasilkan <b>lebih dari satu surat jalan</b> jika di File 2 ada banyak baris yang cocok.
-    </div>
-    """, unsafe_allow_html=True)
-
-    # DIAGNOSTIK
-    if len(missing) > 0:
-        with st.expander(f'🔍 Diagnostik: {len(missing)} kombinasi NOPOL+KUANTUM tidak match', expanded=(len(found) == 0)):
-            nopol_beda_k = []
-            nopol_tidak_ada = []
-
+            # Diagnostik detail
+            nopol_beda_k_rows = []
+            nopol_tidak_ada_rows = []
             for _, row in missing.iterrows():
-                f2_match = df2_all[df2_all['nopol'] == row['nopol']]
+                f2_match = df2[df2['nopol'] == row['nopol']]
                 if len(f2_match) > 0:
                     kuantums = sorted(f2_match['kuantum'].dropna().astype(int).unique().tolist())
                     display  = ', '.join(map(str, kuantums[:8]))
                     if len(kuantums) > 8:
                         display += f' ... (+{len(kuantums)-8} lagi)'
-                    nopol_beda_k.append({
+                    nopol_beda_k_rows.append({
                         'NOPOL': row['nopol'],
-                        'KUANTUM di File 1': int(row['kuantum']),
-                        'KUANTUM tersedia di File 2': display
+                        'Kuantum File 1': int(row['kuantum']),
+                        'Kuantum Tersedia di File 2': display,
+                        'Status': '⚠️ Kuantum tidak cocok'
                     })
                 else:
-                    nopol_tidak_ada.append({
+                    nopol_tidak_ada_rows.append({
                         'NOPOL': row['nopol'],
-                        'KUANTUM di File 1': int(row['kuantum'])
+                        'Kuantum File 1': int(row['kuantum']),
+                        'Status': '❌ NOPOL tidak ada di File 2'
                     })
 
-            if nopol_beda_k:
-                st.markdown(f'**⚠️ {len(nopol_beda_k)} NOPOL ditemukan di File 2, tapi KUANTUM tidak sama:**')
-                st.markdown("""
-                <div class="warn-box">
-                💡 <b>Penyebab:</b> Nilai KUANTUM di File 1 berbeda dengan yang ada di File 2.
-                Pastikan KUANTUM di File 1 sesuai dengan nilai nyata di File 2 agar bisa match.
-                Match hanya terjadi jika NOPOL <em>DAN</em> KUANTUM sama persis.
-                </div>
-                """, unsafe_allow_html=True)
-                st.dataframe(pd.DataFrame(nopol_beda_k), use_container_width=True, hide_index=True)
+            st.session_state.result_df     = found
+            st.session_state.missing_df    = missing
+            st.session_state.nopol_diff_df = pd.DataFrame(nopol_beda_k_rows)
+            st.session_state.nopol_miss_df = pd.DataFrame(nopol_tidak_ada_rows)
+            st.session_state.df2_debug     = df2
+            st.session_state.df1_debug     = df1
+            st.session_state.active_preview = None
 
-            if nopol_tidak_ada:
-                st.markdown(f'**❌ {len(nopol_tidak_ada)} NOPOL tidak ditemukan sama sekali di File 2:**')
-                st.dataframe(pd.DataFrame(nopol_tidak_ada), use_container_width=True, hide_index=True)
+            st.success(f'✅ Selesai! {len(found)} surat jalan ditemukan dari {len(df1)} data File 1.')
 
-    # TABEL HASIL MATCH
+# ── RESULTS ────────────────────────────────────────────────────────────────────
+if st.session_state.result_df is not None:
+    found      = st.session_state.result_df
+    missing    = st.session_state.missing_df
+    nopol_diff = st.session_state.nopol_diff_df
+    nopol_miss = st.session_state.nopol_miss_df
+    df2_all    = st.session_state.df2_debug
+    df1_all    = st.session_state.df1_debug
+    total_f1   = len(df1_all)
+
+    # ── SUMMARY ────────────────────────────────────────────────────────────────
+    st.markdown('<div class="section-label">Ringkasan Hasil</div>', unsafe_allow_html=True)
+    st.markdown(f"""
+    <div class="stat-grid">
+      <div class="stat-card">
+        <div class="stat-num c-blue">{total_f1}</div>
+        <div class="stat-lbl">Total Data File 1</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-num c-green">{len(found)}</div>
+        <div class="stat-lbl">Surat Jalan Ditemukan</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-num c-red">{len(missing)}</div>
+        <div class="stat-lbl">Data Tidak Match</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-num c-yellow">{len(df2_all)}</div>
+        <div class="stat-lbl">Total Data File 2</div>
+      </div>
+    </div>
+    """, unsafe_allow_html=True)
+
+    st.markdown("""
+    <div class="info-box">
+    ℹ️ <b>Cara kerja match:</b> NOPOL <em>dan</em> KUANTUM harus <b>sama persis</b> di kedua file.
+    Normalisasi otomatis: spasi ganda → 1 spasi, huruf kecil/besar diabaikan (BE1235AD = BE 1235 AD).
+    Satu pasang NOPOL+KUANTUM bisa menghasilkan <b>lebih dari satu surat jalan</b>.
+    </div>
+    """, unsafe_allow_html=True)
+
+    # ══════════════════════════════════════════════════════════════════════════
+    # BAGIAN 1 — DATA YANG BERHASIL MATCH
+    # ══════════════════════════════════════════════════════════════════════════
+    st.markdown('<div class="section-label">✅ Data Berhasil Ditemukan</div>', unsafe_allow_html=True)
+
     if len(found) > 0:
-        st.markdown('<div class="section-label">Surat Jalan yang Ditemukan</div>', unsafe_allow_html=True)
-
-        search = st.text_input('🔍 Filter NOPOL...', placeholder='Ketik NOPOL untuk filter...', label_visibility='collapsed')
+        search = st.text_input(
+            'Filter NOPOL (ditemukan)',
+            placeholder='🔍  Ketik NOPOL untuk filter...',
+            label_visibility='collapsed',
+            key='search_found'
+        )
         disp = found.copy()
         if search.strip():
-            # Normalisasi input pencarian juga
-            search_norm = norm_nopol(search.strip())
-            disp = disp[disp['nopol'].str.contains(re.escape(search_norm), na=False, case=False)].reset_index(drop=True)
+            sn = norm_nopol(search.strip())
+            disp = disp[disp['nopol'].str.contains(re.escape(sn), na=False, case=False)].reset_index(drop=True)
 
         st.markdown(f'Menampilkan **{len(disp)}** dari **{len(found)}** surat jalan.')
 
-        # BULK DOWNLOAD
         bc, _ = st.columns([3, 7])
         with bc:
             do_bulk = st.button('📦 Download Semua (ZIP)', use_container_width=True)
@@ -430,7 +446,6 @@ if st.session_state.result_df is not None:
                 for fut in as_completed(futs):
                     fn, ct, np_val = fut.result()
                     if ct:
-                        # Handle duplikat nama file
                         base_fn = fn
                         counter = 1
                         while fn in ok_files:
@@ -448,15 +463,12 @@ if st.session_state.result_df is not None:
             if ok_files:
                 st.download_button(
                     f'💾 Simpan ZIP ({len(ok_files)} file)',
-                    make_zip(ok_files),
-                    'surat_jalan_semua.zip',
-                    'application/zip'
+                    make_zip(ok_files), 'surat_jalan_semua.zip', 'application/zip'
                 )
             if fail_list:
-                with st.expander(f'❌ {len(fail_list)} gagal'):
+                with st.expander(f'❌ {len(fail_list)} file gagal diunduh'):
                     st.write(fail_list)
 
-        # TABEL INDIVIDUAL
         st.markdown('<div class="section-label">Detail per Surat Jalan</div>', unsafe_allow_html=True)
         hcols = st.columns([1, 3, 2, 2, 2])
         for col, lbl in zip(hcols, ['No.', 'NOPOL', 'KUANTUM', '👁 Lihat', '⬇ Download']):
@@ -467,8 +479,7 @@ if st.session_state.result_df is not None:
             nopol   = row['nopol']
             kuantum = int(row['kuantum'])
             link    = row['surat_jalan']
-
-            cols = st.columns([1, 3, 2, 2, 2])
+            cols    = st.columns([1, 3, 2, 2, 2])
             cols[0].markdown(f'`#{i+1}`')
             cols[1].markdown(f'`{nopol}`')
             cols[2].markdown(f'**{kuantum:,}**')
@@ -476,35 +487,148 @@ if st.session_state.result_df is not None:
             with cols[3]:
                 if st.button('👁️ Lihat', key=f'v_{i}'):
                     st.session_state.active_preview = None if st.session_state.active_preview == i else i
-
             with cols[4]:
                 ct = download_file(link)
                 if ct:
-                    st.download_button(
-                        '⬇️ Download', ct,
-                        f'{nopol}_{kuantum}.pdf', 'application/pdf',
-                        key=f'd_{i}'
-                    )
+                    st.download_button('⬇️ Download', ct, f'{nopol}_{kuantum}.pdf',
+                                       'application/pdf', key=f'd_{i}')
                 else:
                     st.button('⬇️ Gagal', key=f'df_{i}', disabled=True)
 
-            # Preview iframe tepat di bawah baris
             if st.session_state.active_preview == i:
                 purl = to_preview(link)
                 if purl:
                     import streamlit.components.v1 as components
                     components.html(
                         f'<iframe src="{purl}" width="100%" height="680"'
-                        f' style="border:1px solid #30363d;border-radius:8px;background:#fff"></iframe>',
+                        f' style="border:1px solid #e2e8f0;border-radius:10px;background:#fff"></iframe>',
                         height=700
                     )
                 else:
                     st.error('Link preview tidak valid.')
-
     else:
         st.markdown("""
         <div class="warn-box">
-        ⚠️ <strong>0 surat jalan ditemukan.</strong><br>
-        NOPOL <em>dan</em> KUANTUM harus sama persis di kedua file. Lihat diagnostik di atas untuk detail.
+        ⚠️ <strong>0 surat jalan ditemukan.</strong> NOPOL <em>dan</em> KUANTUM harus sama persis
+        di kedua file. Lihat tabel di bawah untuk detail penyebabnya.
         </div>
         """, unsafe_allow_html=True)
+
+    # ══════════════════════════════════════════════════════════════════════════
+    # BAGIAN 2 — DATA YANG TIDAK BERHASIL TERDETEKSI
+    # ══════════════════════════════════════════════════════════════════════════
+    st.markdown('<div class="section-label">❌ Data Tidak Berhasil Terdeteksi</div>', unsafe_allow_html=True)
+
+    if len(missing) == 0:
+        st.markdown("""
+        <div class="success-box">
+        🎉 <b>Semua data di File 1 berhasil dicocokkan!</b> Tidak ada data yang tidak match.
+        </div>
+        """, unsafe_allow_html=True)
+    else:
+        st.markdown(f"""
+        <div class="error-box">
+        ❌ <b>{len(missing)} kombinasi NOPOL + KUANTUM dari File 1 tidak ditemukan di File 2.</b><br>
+        Tabel di bawah menjelaskan penyebabnya secara detail.
+        </div>
+        """, unsafe_allow_html=True)
+
+        # ── Tabel A: NOPOL ada, KUANTUM beda ─────────────────────────────────
+        if nopol_diff is not None and not nopol_diff.empty:
+            st.markdown(f"""
+            <div class="table-card-yellow">
+              <div class="table-title table-title-yellow">
+                ⚠️ Tabel A — {len(nopol_diff)} NOPOL ada di File 2, tapi KUANTUM tidak cocok
+              </div>
+            </div>
+            """, unsafe_allow_html=True)
+
+            st.markdown("""
+            <div class="warn-box">
+            💡 NOPOL ini <em>ada</em> di File 2, namun nilai KUANTUM yang tersedia berbeda dengan
+            yang ada di File 1. Match hanya terjadi jika keduanya sama persis.
+            </div>
+            """, unsafe_allow_html=True)
+
+            s_diff = st.text_input('', placeholder='🔍  Filter NOPOL di Tabel A...', label_visibility='collapsed', key='sd')
+            d_diff = nopol_diff.copy()
+            if s_diff.strip():
+                sn = norm_nopol(s_diff.strip())
+                d_diff = d_diff[d_diff['NOPOL'].str.contains(re.escape(sn), na=False, case=False)].reset_index(drop=True)
+
+            st.dataframe(
+                d_diff, use_container_width=True, hide_index=True,
+                column_config={
+                    'NOPOL': st.column_config.TextColumn('NOPOL', width='medium'),
+                    'Kuantum File 1': st.column_config.NumberColumn('Kuantum File 1', format='%d'),
+                    'Kuantum Tersedia di File 2': st.column_config.TextColumn('Kuantum Tersedia di File 2', width='large'),
+                    'Status': st.column_config.TextColumn('Status', width='medium'),
+                }
+            )
+            ca, _ = st.columns([2, 8])
+            with ca:
+                st.download_button(
+                    '📥 Export Tabel A (.csv)',
+                    d_diff.to_csv(index=False).encode('utf-8'),
+                    'tabel_a_kuantum_beda.csv', 'text/csv', key='dl_a'
+                )
+
+        # ── Tabel B: NOPOL tidak ada sama sekali ──────────────────────────────
+        if nopol_miss is not None and not nopol_miss.empty:
+            st.markdown(f"""
+            <div class="table-card-red">
+              <div class="table-title table-title-red">
+                ❌ Tabel B — {len(nopol_miss)} NOPOL tidak ditemukan sama sekali di File 2
+              </div>
+            </div>
+            """, unsafe_allow_html=True)
+
+            st.markdown("""
+            <div class="error-box">
+            ❌ NOPOL ini tidak ada di File 2 sama sekali — kemungkinan belum diinput,
+            ada typo, atau memang tidak ada datanya.
+            </div>
+            """, unsafe_allow_html=True)
+
+            s_miss = st.text_input('', placeholder='🔍  Filter NOPOL di Tabel B...', label_visibility='collapsed', key='sm')
+            d_miss = nopol_miss.copy()
+            if s_miss.strip():
+                sn = norm_nopol(s_miss.strip())
+                d_miss = d_miss[d_miss['NOPOL'].str.contains(re.escape(sn), na=False, case=False)].reset_index(drop=True)
+
+            st.dataframe(
+                d_miss, use_container_width=True, hide_index=True,
+                column_config={
+                    'NOPOL': st.column_config.TextColumn('NOPOL', width='medium'),
+                    'Kuantum File 1': st.column_config.NumberColumn('Kuantum File 1', format='%d'),
+                    'Status': st.column_config.TextColumn('Status', width='large'),
+                }
+            )
+            cb2, _ = st.columns([2, 8])
+            with cb2:
+                st.download_button(
+                    '📥 Export Tabel B (.csv)',
+                    d_miss.to_csv(index=False).encode('utf-8'),
+                    'tabel_b_nopol_tidak_ada.csv', 'text/csv', key='dl_b'
+                )
+
+        # ── Tabel C: Semua tidak match (gabungan) ─────────────────────────────
+        with st.expander('📋 Tabel C — Semua data tidak match (gabungan)', expanded=False):
+            all_miss = missing.copy()
+            all_miss.columns = ['NOPOL', 'Kuantum File 1']
+            all_miss['Kuantum File 1'] = all_miss['Kuantum File 1'].astype(int)
+
+            s_all = st.text_input('', placeholder='🔍  Filter NOPOL...', label_visibility='collapsed', key='sa')
+            if s_all.strip():
+                sn = norm_nopol(s_all.strip())
+                all_miss = all_miss[all_miss['NOPOL'].str.contains(re.escape(sn), na=False, case=False)].reset_index(drop=True)
+
+            st.dataframe(all_miss, use_container_width=True, hide_index=True)
+
+            cc, _ = st.columns([2, 8])
+            with cc:
+                st.download_button(
+                    '📥 Export Tabel C (.csv)',
+                    all_miss.to_csv(index=False).encode('utf-8'),
+                    'tabel_c_semua_tidak_match.csv', 'text/csv', key='dl_c'
+                )
