@@ -145,9 +145,15 @@ def load_file1(df):
 def load_file2(raw_df):
     df = raw_df.copy()
 
-    # Deteksi apakah baris pertama sebenarnya adalah header
-    first_row = df.iloc[0].astype(str).str.strip().str.upper().tolist()
-    has_header_row = any('NOPOL' in v for v in first_row)
+    # Safety check
+    if df.empty:
+        return pd.DataFrame()
+
+    # Ambil baris pertama TANPA asumsi tipe
+    first_row = df.iloc[0].tolist()
+
+    # Paksa semua jadi string + uppercase
+    has_header_row = any('NOPOL' in str(v).upper() for v in first_row)
     if has_header_row:
         df.columns = [str(c).strip() for c in df.iloc[0]]
         df = df[1:].reset_index(drop=True)
