@@ -13,7 +13,7 @@ from collections import defaultdict
 import hashlib
 
 # ─────────────────────────────────────────────
-#  PAGE CONFIG (harus di awal sebelum perintah Streamlit lainnya)
+#  PAGE CONFIG
 # ─────────────────────────────────────────────
 st.set_page_config(
     page_title="Surat Jalan - Optimal",
@@ -65,7 +65,6 @@ html, body, [class*="css"] {
 }
 .section-lbl::after { content:'';flex:1;height:1px;background:#21262d; }
 
-/* Buttons */
 .stButton > button {
     background:#21262d !important;color:#e6edf3 !important;
     border:1px solid #30363d !important;border-radius:7px !important;
@@ -390,8 +389,10 @@ def main():
         with col_f2:
             link_filter = st.selectbox("Status Link", options=["Semua", "Valid", "Invalid"], key="link_filter")
         with col_f3:
+            # Gunakan nilai finite yang besar sebagai pengganti infinity
+            MAX_FINITE = 1e12
             min_q = st.number_input("Min Kuantum (kg)", value=0.0, step=100.0, key="min_q")
-            max_q = st.number_input("Max Kuantum (kg)", value=float('inf'), step=100.0, key="max_q")
+            max_q = st.number_input("Max Kuantum (kg)", value=MAX_FINITE, step=100.0, key="max_q")
 
         filtered = matched.copy()
         if search:
@@ -401,23 +402,23 @@ def main():
         elif link_filter == "Invalid":
             filtered = filtered[filtered["VALID_LINK"] == False]
 
+        # Filter kuantum
         kuantum_col = "KUANTUM" if "KUANTUM" in filtered.columns and filtered["KUANTUM"].notna().any() else "KUANTUM_F1"
         if kuantum_col in filtered.columns:
-            temp_mask = filtered[kuantum_col].notna()
-            filtered.loc[temp_mask, "_temp"] = filtered.loc[temp_mask, kuantum_col]
-            filtered = filtered[(filtered["_temp"] >= min_q) | (filtered["_temp"].isna())]
-            if max_q != float('inf'):
-                filtered = filtered[(filtered["_temp"] <= max_q) | (filtered["_temp"].isna())]
-            if "_temp" in filtered.columns:
-                filtered = filtered.drop(columns=["_temp"])
+            numeric_mask = filtered[kuantum_col].notna()
+            if min_q > 0:
+                filtered = filtered[(~numeric_mask) | (filtered[kuantum_col] >= min_q)]
+            if max_q < MAX_FINITE:
+                filtered = filtered[(~numeric_mask) | (filtered[kuantum_col] <= max_q)]
 
         total_filtered = len(filtered)
         page = st.session_state.page
         total_pages = (total_filtered + PAGE_SIZE - 1) // PAGE_SIZE if total_filtered > 0 else 1
-        if page >= total_pages:
+        if page >= total_pages and total_pages > 0:
             page = total_pages - 1
             st.session_state.page = page
 
+        # Pagination controls
         col_prev, col_page_info, col_next = st.columns([1,3,1])
         with col_prev:
             if st.button("◀ Sebelumnya", disabled=(page==0)):
@@ -432,6 +433,11 @@ def main():
 
         start_idx = page * PAGE_SIZE
         end_idx = min(start_idx + PAGE_SIZE, total_filtered)
+        if start_idx >= total_filtered and total_filtered > 0:
+            start_idx = 0
+            end_idx = min(PAGE_SIZE, total_filtered)
+            st.session_state.page = 0
+            st.rerun()
         page_df = filtered.iloc[start_idx:end_idx].copy()
         page_df["Pilih"] = False
 
@@ -455,6 +461,7 @@ def main():
 
         st.caption(f"Menampilkan {len(page_df)} dari {total_filtered} baris (setelah filter).")
 
+        # Download buttons
         col_dl1, col_dl2 = st.columns(2)
         with col_dl1:
             if st.button("📦 Download Semua (Valid)", use_container_width=True):
@@ -492,15 +499,18 @@ def main():
                         if fails:
                             st.error(f"Gagal download {len(fails)} file.")
 
+        # Invalid links expander
         invalid_df = filtered[filtered["VALID_LINK"]==False][["NOPOL_RAW","KUANTUM","LINK"]].drop_duplicates()
         if len(invalid_df) > 0:
             with st.expander(f"⚠️ {len(invalid_df)} surat jalan dengan link tidak valid (pada hasil filter)"):
                 st.dataframe(invalid_df, use_container_width=True, hide_index=True)
 
+        # Not found expander
         if not_found is not None and len(not_found) > 0:
             with st.expander(f"❌ {len(not_found)} nopol tidak ditemukan di database"):
                 st.dataframe(not_found[["NOPOL_RAW","KUANTUM_F1"]].rename(columns={"KUANTUM_F1":"Target Kuantum"}), use_container_width=True, hide_index=True)
 
+        # Reset cache button
         if st.button("🗑️ Reset Cache Download", help="Hapus file PDF yang tersimpan sementara"):
             st.session_state.download_cache.clear()
             st.success("Cache dibersihkan.")
