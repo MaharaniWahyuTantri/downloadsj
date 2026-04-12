@@ -75,24 +75,40 @@ div[data-testid="stFileUploader"] { background:#0d1117; border:1px dashed #30363
 # ── UTILITIES ──────────────────────────────────────────────────────────────────
 
 def norm_nopol(v):
-    return re.sub(r'\s+', ' ', str(v)).strip().upper()
+    """Normalize plate number: uppercase, collapse whitespace, remove internal spaces for comparison."""
+    s = re.sub(r'\s+', ' ', str(v)).strip().upper()
+    return s
+
+def norm_nopol_key(v):
+    """Normalized key for matching: remove ALL spaces so 'BE1235AD' == 'BE 1235 AD'."""
+    return re.sub(r'\s+', '', str(v)).upper()
 
 def norm_kuantum(v):
-    try: return int(float(str(v).replace(',', '.').strip()))
-    except: return None
+    try:
+        return int(float(str(v).replace(',', '.').strip()))
+    except:
+        return None
 
 def find_col(df, kws):
+    """
+    Find column matching any keyword (case-insensitive, space/underscore-insensitive).
+    kws is a list of possible keyword fragments.
+    """
     for col in df.columns:
-        c = col.lower().replace(' ', '').replace('_', '')
-        if any(k.replace(' ', '') in c for k in kws):
-            return col
+        c = str(col).lower().replace(' ', '').replace('_', '')
+        for k in kws:
+            k_clean = k.lower().replace(' ', '').replace('_', '')
+            if k_clean in c:
+                return col
     return None
 
 def extract_fid(link):
-    if not isinstance(link, str): return None
+    if not isinstance(link, str):
+        return None
     for p in [r'/file/d/([a-zA-Z0-9_-]+)', r'id=([a-zA-Z0-9_-]+)', r'/d/([a-zA-Z0-9_-]+)']:
         m = re.search(p, link)
-        if m: return m.group(1)
+        if m:
+            return m.group(1)
     return None
 
 def to_preview(link):
@@ -105,88 +121,117 @@ def to_dl(link):
 
 def download_file(url, retries=3, timeout=30):
     dl = to_dl(url)
-    if not dl: return None
+    if not dl:
+        return None
     for attempt in range(retries):
         try:
             s = requests.Session()
             r = s.get(dl, timeout=timeout, stream=True)
             if 'text/html' in r.headers.get('Content-Type', ''):
                 m = re.search(r'name="confirm"\s+value="([^"]+)"', r.text)
-                if m: r = s.get(dl + f'&confirm={m.group(1)}', timeout=timeout, stream=True)
+                if m:
+                    r = s.get(dl + f'&confirm={m.group(1)}', timeout=timeout, stream=True)
             if r.status_code == 200 and len(r.content) > 500:
                 return r.content
         except Exception:
-            if attempt < retries - 1: time.sleep(1)
+            if attempt < retries - 1:
+                time.sleep(1)
     return None
 
 def make_zip(files):
     buf = io.BytesIO()
     with zipfile.ZipFile(buf, 'w', zipfile.ZIP_DEFLATED) as zf:
-        for name, data in files.items(): zf.writestr(name, data)
-    buf.seek(0); return buf.read()
+        for name, data in files.items():
+            zf.writestr(name, data)
+    buf.seek(0)
+    return buf.read()
 
 def read_file(f):
     return pd.read_csv(f) if f.name.lower().endswith('.csv') else pd.read_excel(f)
 
+# ── LOAD FILE 1 ────────────────────────────────────────────────────────────────
+
 def load_file1(df):
-    nc = find_col(df, ['nopol', 'no pol', 'nomor polisi'])
-    kc = find_col(df, ['kuantum', 'quantum', 'qty', 'jumlah', 'volume'])
+    # Keywords for NOPOL column (flexible)
+    nopol_kws = ['nopol', 'no pol', 'nomor polisi', 'nopelat', 'pelat', 'plat', 'plate']
+    # Keywords for KUANTUM column (flexible)
+    kuantum_kws = ['kuantum', 'quantum', 'tonase', 'tonasa', 'qty', 'jumlah', 'volume', 'berat', 'kg']
+
+    nc = find_col(df, nopol_kws)
+    kc = find_col(df, kuantum_kws)
+
     if not nc:
-        st.error(f"Kolom NOPOL tidak ditemukan di File 1. Tersedia: {list(df.columns)}")
+        st.error(f"Kolom NOPOL tidak ditemukan di File 1. Kolom tersedia: {list(df.columns)}")
         return pd.DataFrame()
     if not kc:
-        st.error(f"Kolom KUANTUM tidak ditemukan di File 1. Tersedia: {list(df.columns)}")
+        st.error(f"Kolom KUANTUM/TONASE tidak ditemukan di File 1. Kolom tersedia: {list(df.columns)}")
         return pd.DataFrame()
+
     out = pd.DataFrame()
-    out['nopol']   = df[nc].apply(norm_nopol)
-    out['kuantum'] = df[kc].apply(norm_kuantum)
-    return out[out['nopol'] != ''].dropna(subset=['kuantum']).reset_index(drop=True)
+    out['nopol']       = df[nc].apply(norm_nopol)
+    out['nopol_key']   = df[nc].apply(norm_nopol_key)   # for matching
+    out['kuantum']     = df[kc].apply(norm_kuantum)
+
+    out = out[out['nopol'].notna() & (out['nopol'] != '') & (out['nopol_key'] != '')]
+    out = out.dropna(subset=['kuantum'])
+    return out.reset_index(drop=True)
+
+# ── LOAD FILE 2 ────────────────────────────────────────────────────────────────
 
 def load_file2(raw_df):
     df = raw_df.copy()
 
-    # Safety check
     if df.empty:
         return pd.DataFrame()
 
-    # Ambil baris pertama TANPA asumsi tipe
+    # Check if first row is actually a header row embedded in data
     first_row = df.iloc[0].tolist()
-
-    # Paksa semua jadi string + uppercase
     has_header_row = any('NOPOL' in str(v).upper() for v in first_row)
     if has_header_row:
         df.columns = [str(c).strip() for c in df.iloc[0]]
         df = df[1:].reset_index(drop=True)
 
-    nc = find_col(df, ['nopol', 'no pol', 'nomor polisi'])
-    kc = find_col(df, ['kuantum', 'quantum', 'qty', 'jumlah', 'volume'])
-    lc = find_col(df, ['surat jalan', 'suratjalan', 'foto surat', 'link', 'url', 'drive', 'foto', 'gdrive'])
+    nopol_kws   = ['nopol', 'no pol', 'nomor polisi', 'nopelat', 'pelat', 'plat', 'plate']
+    kuantum_kws = ['kuantum', 'quantum', 'tonase', 'tonasa', 'qty', 'jumlah', 'volume', 'berat', 'kg']
+    link_kws    = ['surat jalan', 'suratjalan', 'foto surat', 'link', 'url', 'drive', 'foto', 'gdrive']
+
+    nc = find_col(df, nopol_kws)
+    kc = find_col(df, kuantum_kws)
+    lc = find_col(df, link_kws)
 
     if not nc:
-        st.error(f"Kolom NOPOL tidak ditemukan di File 2. Tersedia: {list(df.columns)}")
+        st.error(f"Kolom NOPOL tidak ditemukan di File 2. Kolom tersedia: {list(df.columns)}")
         return pd.DataFrame()
     if not kc:
-        st.error(f"Kolom KUANTUM tidak ditemukan di File 2. Tersedia: {list(df.columns)}")
+        st.error(f"Kolom KUANTUM/TONASE tidak ditemukan di File 2. Kolom tersedia: {list(df.columns)}")
         return pd.DataFrame()
     if not lc:
-        st.error(f"Kolom SURAT JALAN / link tidak ditemukan di File 2. Tersedia: {list(df.columns)}")
+        st.error(f"Kolom SURAT JALAN / link tidak ditemukan di File 2. Kolom tersedia: {list(df.columns)}")
         return pd.DataFrame()
 
     out = pd.DataFrame()
     out['nopol']       = df[nc].apply(norm_nopol)
+    out['nopol_key']   = df[nc].apply(norm_nopol_key)   # for matching (no spaces)
     out['kuantum']     = df[kc].apply(norm_kuantum)
     out['surat_jalan'] = df[lc].astype(str).str.strip()
 
-    # Buang baris header yang ikut terbaca, buang NaN
-    out = out[out['nopol'].notna() & (out['nopol'] != '') & (out['nopol'].str.upper() != 'NOPOL')]
+    # Drop header rows that leaked in, drop empty nopol
+    out = out[
+        out['nopol'].notna() &
+        (out['nopol'] != '') &
+        (out['nopol_key'] != '') &
+        (out['nopol'].str.upper() != 'NOPOL')
+    ]
     out = out.dropna(subset=['kuantum'])
-    # Hanya simpan baris dengan link Google Drive yang valid
+
+    # Keep only rows with valid Google Drive links
     out = out[out['surat_jalan'].str.startswith('http')].reset_index(drop=True)
     return out
 
 # ── SESSION STATE ──────────────────────────────────────────────────────────────
 for k in ['result_df', 'missing_df', 'active_preview', 'df2_debug']:
-    if k not in st.session_state: st.session_state[k] = None
+    if k not in st.session_state:
+        st.session_state[k] = None
 
 # ── HEADER ─────────────────────────────────────────────────────────────────────
 st.markdown("""
@@ -194,7 +239,7 @@ st.markdown("""
   <div style="font-size:2.2rem">🚛</div>
   <div>
     <h1>Surat Jalan Filter</h1>
-    <p>Match NOPOL + KUANTUM (ketat) → Preview &amp; Download Surat Jalan</p>
+    <p>Match NOPOL (fleksibel spasi &amp; huruf kapital) → Preview &amp; Download Surat Jalan</p>
   </div>
 </div>
 """, unsafe_allow_html=True)
@@ -203,10 +248,10 @@ st.markdown("""
 st.markdown('<div class="section-label">Upload File</div>', unsafe_allow_html=True)
 c1, c2 = st.columns(2)
 with c1:
-    st.markdown('<div class="upload-card"><h3>📋 File 1 — Target</h3><p>Kolom: NOPOL, KUANTUM</p></div>', unsafe_allow_html=True)
+    st.markdown('<div class="upload-card"><h3>📋 File 1 — Target</h3><p>Kolom: NOPOL / Nomor Polisi, KUANTUM / TONASE</p></div>', unsafe_allow_html=True)
     file1 = st.file_uploader("File 1", type=['csv','xlsx','xls'], key='f1', label_visibility='collapsed')
 with c2:
-    st.markdown('<div class="upload-card"><h3>🗄️ File 2 — Database Surat Jalan</h3><p>Kolom: NOPOL, KUANTUM, SURAT JALAN (link Google Drive)</p></div>', unsafe_allow_html=True)
+    st.markdown('<div class="upload-card"><h3>🗄️ File 2 — Database Surat Jalan</h3><p>Kolom: NOPOL, KUANTUM / TONASE, Foto Surat Jalan (link Google Drive)</p></div>', unsafe_allow_html=True)
     file2 = st.file_uploader("File 2", type=['csv','xlsx','xls'], key='f2', label_visibility='collapsed')
 
 cb, _ = st.columns([2, 8])
@@ -223,70 +268,78 @@ if process:
             r2 = read_file(file2)
             df1 = load_file1(r1)
             df2 = load_file2(r2)
-            if df1.empty or df2.empty: st.stop()
+            if df1.empty or df2.empty:
+                st.stop()
 
-            # Match ketat: NOPOL + KUANTUM harus sama persis
-            result  = pd.merge(df1, df2, on=['nopol', 'kuantum'], how='left')
-            found   = result[result['surat_jalan'].notna() & result['surat_jalan'].str.startswith('http')].copy().reset_index(drop=True)
-            missing = result[~result.index.isin(found.index)].drop_duplicates(subset=['nopol','kuantum']).copy().reset_index(drop=True)
+            # ── MATCH LOGIC ────────────────────────────────────────────────────
+            # Match hanya berdasarkan NOPOL (tanpa spasi, case-insensitive)
+            # Satu NOPOL di File 1 bisa punya BANYAK surat jalan di File 2
+            # Ambil SEMUA surat jalan yang nopol_key-nya cocok
 
-            st.session_state.result_df     = found
-            st.session_state.missing_df    = missing
-            st.session_state.df2_debug     = df2
+            # Build lookup: nopol_key -> list of rows from df2
+            df2_lookup = df2.groupby('nopol_key')
+
+            result_rows = []
+            missing_rows = []
+
+            for _, row1 in df1.iterrows():
+                key = row1['nopol_key']
+                if key in df2_lookup.groups:
+                    matches = df2_lookup.get_group(key)
+                    for _, row2 in matches.iterrows():
+                        result_rows.append({
+                            'nopol':       row1['nopol'],       # tampilkan format dari File 1
+                            'kuantum':     row2['kuantum'],     # kuantum dari File 2
+                            'surat_jalan': row2['surat_jalan']
+                        })
+                else:
+                    missing_rows.append({
+                        'nopol':   row1['nopol'],
+                        'kuantum': row1['kuantum']
+                    })
+
+            found   = pd.DataFrame(result_rows).reset_index(drop=True)
+            missing = pd.DataFrame(missing_rows).reset_index(drop=True) if missing_rows else pd.DataFrame(columns=['nopol','kuantum'])
+
+            st.session_state.result_df      = found
+            st.session_state.missing_df     = missing
+            st.session_state.df2_debug      = df2
             st.session_state.active_preview = None
-            st.success(f'✅ Selesai. {len(found)} match ditemukan dari {len(df1)} data File 1.')
+
+            n_f1_unique = df1['nopol_key'].nunique()
+            n_matched   = found['nopol'].nunique() if not found.empty else 0
+            st.success(f'✅ Selesai. {len(found)} surat jalan ditemukan dari {len(df1)} baris File 1 ({n_matched}/{n_f1_unique} NOPOL unik cocok).')
 
 # ── RESULTS ────────────────────────────────────────────────────────────────────
 if st.session_state.result_df is not None:
     found:   pd.DataFrame = st.session_state.result_df
     missing: pd.DataFrame = st.session_state.missing_df
     df2_all: pd.DataFrame = st.session_state.df2_debug
+
     total_f1 = len(found) + len(missing)
 
     # SUMMARY
     st.markdown('<div class="section-label">Ringkasan</div>', unsafe_allow_html=True)
     st.markdown(f"""
     <div class="stat-grid">
-      <div class="stat-card"><div class="stat-num c-blue">{total_f1}</div><div class="stat-lbl">Total File 1</div></div>
-      <div class="stat-card"><div class="stat-num c-green">{len(found)}</div><div class="stat-lbl">Match Ditemukan</div></div>
-      <div class="stat-card"><div class="stat-num c-red">{len(missing)}</div><div class="stat-lbl">Tidak Match</div></div>
+      <div class="stat-card"><div class="stat-num c-blue">{total_f1}</div><div class="stat-lbl">Total Baris File 1</div></div>
+      <div class="stat-card"><div class="stat-num c-green">{len(found)}</div><div class="stat-lbl">Surat Jalan Ditemukan</div></div>
+      <div class="stat-card"><div class="stat-num c-red">{len(missing)}</div><div class="stat-lbl">NOPOL Tidak Match</div></div>
       <div class="stat-card"><div class="stat-num c-yellow">{len(df2_all)}</div><div class="stat-lbl">Total File 2</div></div>
     </div>
     """, unsafe_allow_html=True)
 
     # DIAGNOSTIK
     if len(missing) > 0:
-        with st.expander(f'🔍 Diagnostik: {len(missing)} data tidak match', expanded=(len(found) == 0)):
-            nopol_beda_k = []
-            nopol_tidak_ada = []
-
-            for _, row in missing.iterrows():
-                f2_match = df2_all[df2_all['nopol'] == row['nopol']]
-                if len(f2_match) > 0:
-                    kuantums = sorted(f2_match['kuantum'].dropna().unique().tolist())
-                    display  = ', '.join(map(str, kuantums[:6]))
-                    if len(kuantums) > 6: display += f' ... (+{len(kuantums)-6} lagi)'
-                    nopol_beda_k.append({
-                        'NOPOL': row['nopol'],
-                        'KUANTUM di File1': row['kuantum'],
-                        'KUANTUM tersedia di File2': display
-                    })
-                else:
-                    nopol_tidak_ada.append({'NOPOL': row['nopol'], 'KUANTUM di File1': row['kuantum']})
-
-            if nopol_beda_k:
-                st.markdown(f'**⚠️ {len(nopol_beda_k)} NOPOL ada di File 2, tapi KUANTUM tidak sama:**')
-                st.markdown("""
-                <div class="warn-box">
-                💡 <b>Penyebab umum:</b> KUANTUM di File 1 mungkin salah atau belum diisi (misal semua = 4500).
-                Pastikan KUANTUM di File 1 sesuai dengan nilai di File 2 agar bisa match.
-                </div>
-                """, unsafe_allow_html=True)
-                st.dataframe(pd.DataFrame(nopol_beda_k), use_container_width=True, hide_index=True)
-
-            if nopol_tidak_ada:
-                st.markdown(f'**❌ {len(nopol_tidak_ada)} NOPOL tidak ditemukan sama sekali di File 2:**')
-                st.dataframe(pd.DataFrame(nopol_tidak_ada), use_container_width=True, hide_index=True)
+        with st.expander(f'🔍 Diagnostik: {len(missing)} NOPOL tidak ditemukan di File 2', expanded=(len(found) == 0)):
+            st.markdown(f'**❌ NOPOL berikut tidak ditemukan sama sekali di File 2:**')
+            st.markdown("""
+            <div class="warn-box">
+            💡 <b>Kemungkinan penyebab:</b> NOPOL di File 1 tidak ada di database File 2 sama sekali.
+            Pastikan format NOPOL benar (spasi/tanpa spasi tidak masalah, huruf kapital tidak masalah).
+            </div>
+            """, unsafe_allow_html=True)
+            st.dataframe(missing, use_container_width=True, hide_index=True)
 
     # TABEL HASIL MATCH
     if len(found) > 0:
@@ -295,7 +348,10 @@ if st.session_state.result_df is not None:
         search = st.text_input('🔍 Filter NOPOL...', placeholder='Ketik NOPOL untuk filter...', label_visibility='collapsed')
         disp = found.copy()
         if search.strip():
-            disp = disp[disp['nopol'].str.contains(search.strip().upper(), na=False)].reset_index(drop=True)
+            disp = disp[disp['nopol'].str.contains(re.sub(r'\s+', '', search.strip()).upper(), na=False, regex=False)].reset_index(drop=True)
+            if disp.empty:
+                # Coba match dengan spasi
+                disp = found[found['nopol'].str.upper().str.contains(search.strip().upper(), na=False)].reset_index(drop=True)
 
         st.markdown(f'Menampilkan **{len(disp)}** dari **{len(found)}** surat jalan.')
 
@@ -306,30 +362,42 @@ if st.session_state.result_df is not None:
 
         if do_bulk and len(disp) > 0:
             items = list(disp[['nopol','kuantum','surat_jalan']].itertuples(index=True))
-            prog = st.progress(0); stxt = st.empty()
+            prog = st.progress(0)
+            stxt = st.empty()
             done, ok_files, fail_list = 0, {}, []
             stxt.text(f'Mengunduh 0 / {len(items)} file...')
 
             def _worker(row):
                 ct = download_file(row.surat_jalan)
-                return f'{row.nopol}_{row.kuantum}.pdf', ct, row.nopol
+                kuantum_val = int(row.kuantum) if row.kuantum and not pd.isna(row.kuantum) else 0
+                fname = f'{row.nopol}_{kuantum_val}.pdf'
+                # sanitize filename
+                fname = re.sub(r'[\\/*?:"<>|]', '_', fname)
+                return fname, ct, row.nopol
 
             with ThreadPoolExecutor(max_workers=10) as ex:
                 futs = {ex.submit(_worker, r): r for r in items}
                 for fut in as_completed(futs):
                     fn, ct, np_val = fut.result()
-                    if ct: ok_files[fn] = ct
-                    else:  fail_list.append(np_val)
+                    if ct:
+                        ok_files[fn] = ct
+                    else:
+                        fail_list.append(np_val)
                     done += 1
                     prog.progress(done / len(items))
                     stxt.text(f'Mengunduh {done} / {len(items)} file...')
 
             stxt.text(f'✅ Berhasil: {len(ok_files)} | ❌ Gagal: {len(fail_list)}')
             if ok_files:
-                st.download_button(f'💾 Simpan ZIP ({len(ok_files)} file)', make_zip(ok_files),
-                                   'surat_jalan_semua.zip', 'application/zip')
+                st.download_button(
+                    f'💾 Simpan ZIP ({len(ok_files)} file)',
+                    make_zip(ok_files),
+                    'surat_jalan_semua.zip',
+                    'application/zip'
+                )
             if fail_list:
-                with st.expander(f'❌ {len(fail_list)} gagal'): st.write(fail_list)
+                with st.expander(f'❌ {len(fail_list)} gagal'):
+                    st.write(fail_list)
 
         # TABEL INDIVIDUAL
         st.markdown('<div class="section-label">Detail per Surat Jalan</div>', unsafe_allow_html=True)
@@ -340,7 +408,7 @@ if st.session_state.result_df is not None:
 
         for i, row in disp.iterrows():
             nopol   = row['nopol']
-            kuantum = int(row['kuantum'])
+            kuantum = int(row['kuantum']) if row['kuantum'] and not pd.isna(row['kuantum']) else 0
             link    = row['surat_jalan']
 
             cols = st.columns([1, 3, 2, 2, 2])
@@ -355,9 +423,11 @@ if st.session_state.result_df is not None:
             with cols[4]:
                 ct = download_file(link)
                 if ct:
-                    st.download_button('⬇️ Download', ct,
-                                       f'{nopol}_{kuantum}.pdf', 'application/pdf',
-                                       key=f'd_{i}')
+                    fname = re.sub(r'[\\/*?:"<>|]', '_', f'{nopol}_{kuantum}.pdf')
+                    st.download_button(
+                        '⬇️ Download', ct, fname, 'application/pdf',
+                        key=f'd_{i}'
+                    )
                 else:
                     st.button('⬇️ Gagal', key=f'df_{i}', disabled=True)
 
@@ -377,7 +447,7 @@ if st.session_state.result_df is not None:
     else:
         st.markdown("""
         <div class="warn-box">
-        ⚠️ <strong>0 data match.</strong><br>
-        NOPOL <em>dan</em> KUANTUM harus sama persis di kedua file. Lihat diagnostik di atas.
+        ⚠️ <strong>0 surat jalan ditemukan.</strong><br>
+        Tidak ada NOPOL dari File 1 yang cocok di File 2. Lihat diagnostik di atas.
         </div>
         """, unsafe_allow_html=True)
