@@ -1,13 +1,378 @@
-# ... (kode sebelumnya sama sampai setelah st.success)
+import streamlit as st
+import pandas as pd
+import requests
+import zipfile
+import io
+import re
+import time
+from concurrent.futures import ThreadPoolExecutor, as_completed
+from tenacity import retry, stop_after_attempt, wait_exponential, retry_if_exception_type
+import streamlit.components.v1 as components
+from typing import Optional, Tuple, List, Dict, Set
+from collections import defaultdict
+import hashlib
+
+# ─────────────────────────────────────────────
+#  PAGE CONFIG
+# ─────────────────────────────────────────────
+st.set_page_config(
+    page_title="Surat Jalan - Optimal",
+    page_icon="🚛",
+    layout="wide",
+    initial_sidebar_state="expanded",
+)
+
+# ─────────────────────────────────────────────
+#  CSS (dipertahankan)
+# ─────────────────────────────────────────────
+st.markdown("""
+<style>
+@import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;600&family=IBM+Plex+Sans:wght@300;400;600;700&display=swap');
+
+html, body, [class*="css"] {
+    font-family: 'IBM Plex Sans', sans-serif !important;
+    background: #0d1117 !important;
+    color: #e6edf3 !important;
+}
+.stApp { background: #0d1117 !important; }
+.main .block-container { padding-top: 1.2rem; padding-bottom: 2rem; }
+
+.app-header {
+    background: linear-gradient(135deg,#161b22,#1c2128);
+    border:1px solid #30363d; border-radius:12px;
+    padding:22px 28px; margin-bottom:18px;
+    display:flex; align-items:center; gap:14px;
+}
+.app-header .icon { font-size:2rem; }
+.app-header h1 { font-size:1.45rem; font-weight:700; color:#f0f6fc; margin:0; }
+.app-header p  { font-size:0.78rem; color:#8b949e; margin:3px 0 0; }
+
+.stats-bar { display:flex;gap:10px;margin:12px 0; }
+.stat-card {
+    flex:1;background:#161b22;border:1px solid #30363d;
+    border-radius:10px;padding:11px 14px;text-align:center;
+}
+.stat-num   { font-family:'IBM Plex Mono',monospace;font-size:1.65rem;font-weight:600;line-height:1; }
+.stat-label { font-size:0.66rem;color:#8b949e;margin-top:3px;text-transform:uppercase;letter-spacing:0.5px; }
+.num-blue   { color:#58a6ff; }
+.num-green  { color:#3fb950; }
+.num-orange { color:#d29922; }
+.num-red    { color:#f85149; }
+
+.section-lbl {
+    font-size:0.68rem;text-transform:uppercase;letter-spacing:1.2px;color:#8b949e;
+    display:flex;align-items:center;gap:8px;margin:16px 0 9px;
+}
+.section-lbl::after { content:'';flex:1;height:1px;background:#21262d; }
+
+/* Buttons */
+.stButton > button {
+    background:#21262d !important;color:#e6edf3 !important;
+    border:1px solid #30363d !important;border-radius:7px !important;
+    font-family:'IBM Plex Sans',sans-serif !important;
+    font-size:0.76rem !important;padding:5px 11px !important;
+}
+.stDownloadButton > button {
+    background:#1a3a2a !important;color:#3fb950 !important;
+    border:1px solid #3fb95044 !important;
+}
+.stProgress > div > div { background:#58a6ff !important; }
+div[data-testid="stExpander"] { border:1px solid #30363d !important;border-radius:8px !important; }
+</style>
+""", unsafe_allow_html=True)
+
+# ─────────────────────────────────────────────
+#  KONSTANTA & KONFIGURASI
+# ─────────────────────────────────────────────
+MAX_DOWNLOAD_WORKERS = 3          # default, bisa diubah di sidebar
+REQUEST_TIMEOUT = 45
+MAX_RETRIES = 3
+PAGE_SIZE = 50
+
+# ─────────────────────────────────────────────
+#  FUNGSI UTILITY
+# ─────────────────────────────────────────────
+def normalize_nopol(v):
+    if pd.isna(v):
+        return ""
+    return re.sub(r"\s+", "", str(v)).upper().strip()
+
+def normalize_kuantum(v):
+    """Lebih robust untuk format Indonesia / Eropa."""
+    if pd.isna(v):
+        return None
+    s = str(v).strip()
+    # Hapus semua titik (pemisah ribuan) dan ganti koma dengan titik
+    s = re.sub(r"\.", "", s)
+    s = s.replace(",", ".")
+    try:
+        return float(s)
+    except:
+        return None
+
+def detect_col(df, keywords, allow_fallback=True):
+    lower_cols = {c: c.lower() for c in df.columns}
+    for c, cl in lower_cols.items():
+        if any(k in cl for k in keywords):
+            return c
+    return None
+
+def extract_file_id(link):
+    if not isinstance(link, str):
+        return None
+    m = re.search(r"/file/d/([a-zA-Z0-9_-]+)", link)
+    if m:
+        return m.group(1)
+    m = re.search(r"[?&]id=([a-zA-Z0-9_-]+)", link)
+    if m:
+        return m.group(1)
+    return None
+
+def is_valid_link(link):
+    return bool(extract_file_id(str(link) if link else ""))
+
+def to_download_url(link):
+    fid = extract_file_id(str(link) if link else "")
+    return f"https://drive.google.com/uc?export=download&id={fid}" if fid else None
+
+def to_preview_url(link):
+    fid = extract_file_id(str(link) if link else "")
+    return f"https://drive.google.com/file/d/{fid}/preview" if fid else None
+
+def is_pdf_content(content: bytes) -> bool:
+    """Cek magic bytes PDF: %PDF"""
+    return content.startswith(b'%PDF')
+
+@retry(stop=stop_after_attempt(MAX_RETRIES),
+       wait=wait_exponential(multiplier=1, min=2, max=10),
+       retry=retry_if_exception_type((requests.RequestException, ConnectionError)))
+def download_file(link: str, timeout=REQUEST_TIMEOUT) -> Optional[bytes]:
+    dl_url = to_download_url(link)
+    if not dl_url:
+        return None
+    session = requests.Session()
+    resp = session.get(dl_url, timeout=timeout, allow_redirects=True)
+    ct = resp.headers.get("Content-Type", "")
+    if "text/html" in ct:
+        confirm_match = re.search(rb'name="confirm"\s+value="([^"]+)"', resp.content)
+        if confirm_match:
+            confirm = confirm_match.group(1).decode()
+            resp = session.get(dl_url + f"&confirm={confirm}", timeout=timeout)
+    if resp.status_code != 200:
+        return None
+    content = resp.content
+    if len(content) < 1024 or not is_pdf_content(content):
+        return None
+    return content
+
+def safe_filename(nopol: str, kuantum, idx: int) -> str:
+    clean = re.sub(r"[^\w]", "_", str(nopol))
+    return f"{clean}_{kuantum}_{idx}.pdf"
+
+def generate_zip(files_dict: Dict[str, bytes]) -> bytes:
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
+        for fname, content in files_dict.items():
+            zf.writestr(fname, content)
+    buf.seek(0)
+    return buf.read()
+
+def load_file(f) -> pd.DataFrame:
+    name = f.name.lower()
+    if name.endswith(".csv"):
+        return pd.read_csv(f)
+    try:
+        return pd.read_excel(f, engine="openpyxl")
+    except:
+        return pd.read_excel(f)
+
+# ─────────────────────────────────────────────
+#  PREPARASI DATA DENGAN PILIHAN KOLOM MANUAL
+# ─────────────────────────────────────────────
+def prepare_filter(df: pd.DataFrame, manual_cols: dict) -> pd.DataFrame:
+    nopol_col = manual_cols.get("nopol") or detect_col(df, ["nopol","no pol","plat"])
+    kuantum_col = manual_cols.get("kuantum") or detect_col(df, ["kuantum","qty","volume"])
+    if not nopol_col:
+        st.error("Kolom NOPOL tidak ditemukan. Silakan pilih manual di sidebar.")
+        return pd.DataFrame()
+    out = pd.DataFrame()
+    out["NOPOL_RAW"] = df[nopol_col].astype(str)
+    out["NOPOL_KEY"] = out["NOPOL_RAW"].apply(normalize_nopol)
+    if kuantum_col:
+        out["KUANTUM_F1"] = df[kuantum_col].apply(normalize_kuantum)
+    else:
+        out["KUANTUM_F1"] = None
+    return out[out["NOPOL_KEY"] != ""].drop_duplicates(subset=["NOPOL_KEY"]).reset_index(drop=True)
+
+def prepare_database(df: pd.DataFrame, manual_cols: dict) -> Tuple[pd.DataFrame, str]:
+    nopol_col = manual_cols.get("nopol") or detect_col(df, ["nopol","no pol","plat"])
+    kuantum_col = manual_cols.get("kuantum") or detect_col(df, ["kuantum","qty","volume"])
+    link_col = manual_cols.get("link") or detect_col(df, ["foto","link","url","drive"])
+    if not nopol_col:
+        st.error("Kolom NOPOL tidak ditemukan di database.")
+        return pd.DataFrame(), ""
+    if not link_col:
+        st.error("Kolom LINK tidak ditemukan di database.")
+        return pd.DataFrame(), ""
+    out = pd.DataFrame()
+    out["NOPOL_RAW"] = df[nopol_col].astype(str)
+    out["NOPOL_KEY"] = out["NOPOL_RAW"].apply(normalize_nopol)
+    if kuantum_col:
+        out["KUANTUM"] = df[kuantum_col].apply(normalize_kuantum)
+    else:
+        out["KUANTUM"] = None
+    out["LINK"] = df[link_col].astype(str)
+    out["VALID_LINK"] = out["LINK"].apply(is_valid_link)
+    return out[out["NOPOL_KEY"] != ""].reset_index(drop=True), link_col
+
+def match_by_nopol(df_filter, df_db):
+    matched = pd.merge(
+        df_filter[["NOPOL_RAW","NOPOL_KEY","KUANTUM_F1"]],
+        df_db,
+        on="NOPOL_KEY",
+        how="inner"
+    )
+    found_keys = set(matched["NOPOL_KEY"])
+    not_found = df_filter[~df_filter["NOPOL_KEY"].isin(found_keys)].copy()
+    return matched.reset_index(drop=True), not_found.reset_index(drop=True)
+
+# ─────────────────────────────────────────────
+#  CACHE DOWNLOAD MANAGER (per session)
+# ─────────────────────────────────────────────
+class DownloadCache:
+    def __init__(self):
+        self.cache = {}
+    def get(self, link):
+        key = hashlib.md5(link.encode()).hexdigest()
+        return self.cache.get(key)
+    def set(self, link, content):
+        key = hashlib.md5(link.encode()).hexdigest()
+        self.cache[key] = content
+    def clear(self):
+        self.cache.clear()
+
+if "download_cache" not in st.session_state:
+    st.session_state.download_cache = DownloadCache()
+
+def download_with_cache(link):
+    cached = st.session_state.download_cache.get(link)
+    if cached is not None:
+        return cached
+    content = download_file(link)
+    if content:
+        st.session_state.download_cache.set(link, content)
+    return content
+
+# ─────────────────────────────────────────────
+#  BATCH DOWNLOAD DENGAN PROGRESS & CONCURRENT TERBATAS
+# ─────────────────────────────────────────────
+def batch_download(items: List[Tuple[int, str, str, str]], max_workers=3):
+    """items: list of (idx, nopol_key, kuantum_str, link)"""
+    results = {}
+    fails = []
+    progress_bar = st.progress(0)
+    status_text = st.empty()
+    total = len(items)
+    done = 0
+
+    def worker(item):
+        idx, nopol, kuantum, link = item
+        content = download_with_cache(link)
+        if content:
+            fname = safe_filename(nopol, kuantum, idx)
+            return idx, fname, content, None
+        else:
+            return idx, None, None, nopol
+
+    with ThreadPoolExecutor(max_workers=max_workers) as ex:
+        futures = {ex.submit(worker, item): item for item in items}
+        for future in as_completed(futures):
+            idx, fname, content, fail_nopol = future.result()
+            if content:
+                results[idx] = (fname, content)
+            else:
+                fails.append(fail_nopol)
+            done += 1
+            progress_bar.progress(done / total)
+            status_text.markdown(f"⬇️ **{done}/{total}** — ✅ {len(results)} berhasil | ❌ {len(fails)} gagal")
+    progress_bar.empty()
+    status_text.empty()
+    return results, fails
+
+# ─────────────────────────────────────────────
+#  SIDEBAR UNTUK KOLOM MANUAL
+# ─────────────────────────────────────────────
+with st.sidebar:
+    st.markdown("## ⚙️ Pengaturan Kolom")
+    st.markdown("Jika deteksi otomatis gagal, pilih manual:")
+    col_nopol_f1 = st.selectbox("Kolom NOPOL (File 1)", options=["(Auto)"] + list(st.session_state.get("cols_f1", [])), key="col_nopol_f1")
+    col_kuantum_f1 = st.selectbox("Kolom KUANTUM (File 1)", options=["(Auto)"] + list(st.session_state.get("cols_f1", [])), key="col_kuantum_f1")
+    col_nopol_f2 = st.selectbox("Kolom NOPOL (File 2)", options=["(Auto)"] + list(st.session_state.get("cols_f2", [])), key="col_nopol_f2")
+    col_kuantum_f2 = st.selectbox("Kolom KUANTUM (File 2)", options=["(Auto)"] + list(st.session_state.get("cols_f2", [])), key="col_kuantum_f2")
+    col_link_f2 = st.selectbox("Kolom LINK (File 2)", options=["(Auto)"] + list(st.session_state.get("cols_f2", [])), key="col_link_f2")
+    st.markdown("---")
+    st.markdown("### 🚀 Optimasi")
+    max_workers = st.slider("Max concurrent download", 1, 8, MAX_DOWNLOAD_WORKERS)
+
+# ─────────────────────────────────────────────
+#  MAIN APP
+# ─────────────────────────────────────────────
+st.markdown('<div class="app-header"><div class="icon">🚛</div><div><h1>Surat Jalan — Filter & Download (Optimized)</h1><p>Batch download dengan cache, paginasi, dan seleksi massal</p></div></div>', unsafe_allow_html=True)
+
+# Upload file
+col1, col2 = st.columns(2)
+with col1:
+    f1 = st.file_uploader("📋 File 1 - Target (Nopol dicari)", type=["xlsx","xls","csv"], key="f1")
+with col2:
+    f2 = st.file_uploader("🗄️ File 2 - Database Surat Jalan", type=["xlsx","xls","csv"], key="f2")
+
+# Simpan nama kolom untuk sidebar
+if f1:
+    df1_sample = load_file(f1)
+    st.session_state["cols_f1"] = list(df1_sample.columns)
+if f2:
+    df2_sample = load_file(f2)
+    st.session_state["cols_f2"] = list(df2_sample.columns)
+
+do_process = st.button("⚙️ Proses & Filter", type="primary", use_container_width=False)
+
+if do_process:
+    if not f1 or not f2:
+        st.warning("Upload kedua file terlebih dahulu.")
+    else:
+        with st.spinner("Memproses data..."):
+            df1 = load_file(f1)
+            df2 = load_file(f2)
+            manual_f1 = {}
+            if col_nopol_f1 != "(Auto)": manual_f1["nopol"] = col_nopol_f1
+            if col_kuantum_f1 != "(Auto)": manual_f1["kuantum"] = col_kuantum_f1
+            manual_f2 = {}
+            if col_nopol_f2 != "(Auto)": manual_f2["nopol"] = col_nopol_f2
+            if col_kuantum_f2 != "(Auto)": manual_f2["kuantum"] = col_kuantum_f2
+            if col_link_f2 != "(Auto)": manual_f2["link"] = col_link_f2
+
+            df_filter = prepare_filter(df1, manual_f1)
+            df_db, _ = prepare_database(df2, manual_f2)
+            if df_filter.empty or df_db.empty:
+                st.stop()
+            matched, not_found = match_by_nopol(df_filter, df_db)
+            st.session_state["matched_df"] = matched
+            st.session_state["notfound_df"] = not_found
+            st.session_state["page"] = 0
+        total_nopol = df_filter["NOPOL_KEY"].nunique()
+        found_nopol = matched["NOPOL_KEY"].nunique() if len(matched) else 0
+        st.success(f"✅ {found_nopol}/{total_nopol} nopol ditemukan, total {len(matched)} surat jalan.")
+        if len(not_found) > 0:
+            st.info(f"ℹ️ {len(not_found)} nopol tidak ditemukan.")
 
 # Tampilkan hasil jika ada
 if "matched_df" in st.session_state and st.session_state["matched_df"] is not None:
     matched = st.session_state["matched_df"]
     not_found = st.session_state["notfound_df"]
 
-    # Pastikan kolom yang diperlukan ada
+    # Pastikan kolom yang diperlukan ada (mencegah KeyError)
     if "KUANTUM" not in matched.columns:
-        matched["KUANTUM"] = None  # tambahkan kolom dummy jika tidak ada
+        matched["KUANTUM"] = None
     if "KUANTUM_F1" not in matched.columns:
         matched["KUANTUM_F1"] = None
 
@@ -30,7 +395,6 @@ if "matched_df" in st.session_state and st.session_state["matched_df"] is not No
     with col_f2:
         link_filter = st.selectbox("Status Link", options=["Semua", "Valid", "Invalid"], key="link_filter")
     with col_f3:
-        # Filter range kuantum (jika ada)
         min_q = st.number_input("Min Kuantum (kg)", value=0.0, step=100.0, key="min_q")
         max_q = st.number_input("Max Kuantum (kg)", value=float('inf'), step=100.0, key="max_q")
     
@@ -42,12 +406,18 @@ if "matched_df" in st.session_state and st.session_state["matched_df"] is not No
         filtered = filtered[filtered["VALID_LINK"] == True]
     elif link_filter == "Invalid":
         filtered = filtered[filtered["VALID_LINK"] == False]
+    
     # Filter kuantum (gunakan KUANTUM jika ada, fallback KUANTUM_F1)
     kuantum_col = "KUANTUM" if "KUANTUM" in filtered.columns and filtered["KUANTUM"].notna().any() else "KUANTUM_F1"
     if kuantum_col in filtered.columns:
-        filtered = filtered[(filtered[kuantum_col] >= min_q) | (filtered[kuantum_col].isna())]
+        # Hanya filter baris yang memiliki nilai kuantum
+        numeric_mask = filtered[kuantum_col].notna()
+        filtered.loc[numeric_mask, "_temp"] = filtered.loc[numeric_mask, kuantum_col]
+        filtered = filtered[(filtered["_temp"] >= min_q) | (filtered["_temp"].isna())]
         if max_q != float('inf'):
-            filtered = filtered[(filtered[kuantum_col] <= max_q) | (filtered[kuantum_col].isna())]
+            filtered = filtered[(filtered["_temp"] <= max_q) | (filtered["_temp"].isna())]
+        if "_temp" in filtered.columns:
+            filtered = filtered.drop(columns=["_temp"])
     
     # Pagination
     total_filtered = len(filtered)
@@ -68,6 +438,11 @@ if "matched_df" in st.session_state and st.session_state["matched_df"] is not No
     # Render data_editor dengan filtered dataframe
     start_idx = page * PAGE_SIZE
     end_idx = min(start_idx + PAGE_SIZE, total_filtered)
+    if start_idx >= total_filtered:
+        start_idx = 0
+        end_idx = min(PAGE_SIZE, total_filtered)
+        st.session_state["page"] = 0
+        st.rerun()
     page_df = filtered.iloc[start_idx:end_idx].copy()
     page_df["Pilih"] = False
     # Tampilkan data editor
@@ -90,13 +465,12 @@ if "matched_df" in st.session_state and st.session_state["matched_df"] is not No
     original_global_indices = page_df.index.tolist()
     selected_global = [original_global_indices[i] for i in selected_indices if i < len(original_global_indices)]
     
-    st.caption(f"Menampilkan {min(PAGE_SIZE, total_filtered)} dari {total_filtered} baris (setelah filter).")
+    st.caption(f"Menampilkan {len(page_df)} dari {total_filtered} baris (setelah filter).")
 
-    # Tombol batch download (sama seperti sebelumnya, menggunakan filtered untuk "Download Semua" sebaiknya menggunakan filtered yang sudah difilter? Biar user bisa download semua hasil filter)
+    # Tombol batch download
     col_dl1, col_dl2 = st.columns(2)
     with col_dl1:
         if st.button("📦 Download Semua (Valid)", use_container_width=True):
-            # Gunakan filtered yang valid
             valid_items = [(idx, row["NOPOL_KEY"], row.get("KUANTUM",""), row["LINK"])
                            for idx, row in filtered[filtered["VALID_LINK"]==True].iterrows()]
             if not valid_items:
