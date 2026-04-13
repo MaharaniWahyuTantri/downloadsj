@@ -627,48 +627,47 @@ if st.session_state.result_df is not None:
 
         # ── GABUNG 1 PDF ───────────────────────────────────────────────────────
         if do_merge and len(disp) > 0:
-    ok_files, fail_list, new_cache = run_bulk_download(disp)
-    st.session_state.dl_cache.update(new_cache)
+            ok_files, fail_list, new_cache = run_bulk_download(disp)
+            st.session_state.dl_cache.update(new_cache)
 
-    if ok_files:
-        with st.spinner('Menggabungkan semua file menjadi 1 PDF...'):
-            ordered = []
-            for i, row in disp.iterrows():
-                ct = new_cache.get(row['surat_jalan']) or \
-                     st.session_state.dl_cache.get(row['surat_jalan'])
-                if ct:
-                    ordered.append(ct)
-
-            # Debug info
-            type_counts = {}
-            for ct in ordered:
-                t = detect_file_type(ct)
-                type_counts[t] = type_counts.get(t, 0) + 1
-            st.info(f"🔍 Debug: {len(ordered)} file disiapkan → tipe: {type_counts}")
-
-            merged, merge_errors = merge_pdfs(ordered)
-
-        if merged:
-            st.success(f'✅ {len(ordered)} file berhasil digabung ({len(merged)//1024:,} KB)')
-            st.download_button(
-                f'💾 Simpan PDF Gabungan ({len(ordered)} surat jalan)',
-                merged,
-                'surat_jalan_gabungan.pdf',
-                'application/pdf',
-                key='dl_merged_pdf'
-            )
-        else:
-            st.error('❌ Gagal membuat PDF gabungan.')
-            if merge_errors:
-                with st.expander('🔍 Detail error per file'):
-                    for e in merge_errors:
-                        st.write(f'• {e}')
-
-    if fail_list:
-        with st.expander(f'❌ {len(fail_list)} file tidak bisa digabung'):
-            for f in fail_list:
-                st.write(f'• {f}')
-
+            if ok_files:
+                with st.spinner('Menggabungkan semua file menjadi 1 PDF...'):
+                    ordered = []
+                    for i, row in disp.iterrows():
+                        ct = new_cache.get(row['surat_jalan']) or \
+                             st.session_state.dl_cache.get(row['surat_jalan'])
+                        if ct:
+                            ordered.append(ct)
+        
+                    # Debug info
+                    type_counts = {}
+                    for ct in ordered:
+                        t = detect_file_type(ct)
+                        type_counts[t] = type_counts.get(t, 0) + 1
+                    st.info(f"🔍 Debug: {len(ordered)} file disiapkan → tipe: {type_counts}")
+        
+                    merged, merge_errors = merge_pdfs(ordered)
+        
+                if merged:
+                    st.success(f'✅ {len(ordered)} file berhasil digabung ({len(merged)//1024:,} KB)')
+                    st.download_button(
+                        f'💾 Simpan PDF Gabungan ({len(ordered)} surat jalan)',
+                        merged,
+                        'surat_jalan_gabungan.pdf',
+                        'application/pdf',
+                        key='dl_merged_pdf'
+                    )
+                else:
+                    st.error('❌ Gagal membuat PDF gabungan.')
+                    if merge_errors:
+                        with st.expander('🔍 Detail error per file'):
+                            for e in merge_errors:
+                                st.write(f'• {e}')
+        
+            if fail_list:
+                with st.expander(f'❌ {len(fail_list)} file tidak bisa digabung'):
+                    for f in fail_list:
+                        st.write(f'• {f}')
         # ── TABEL DETAIL PER BARIS ─────────────────────────────────────────────
         st.markdown('<div class="section-label">Detail per Surat Jalan</div>', unsafe_allow_html=True)
         hcols = st.columns([0.5, 2.5, 1.5, 2, 1.2, 1.8])
