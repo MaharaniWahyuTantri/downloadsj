@@ -422,7 +422,6 @@ st.markdown("""
   <div style="font-size:2.4rem">🚛</div>
   <div>
     <h1>Dowload Surat Jalan in Bulk</h1>
-    <h2>Semangat kerjanya, nanti ketemu CORTIS!</h2>
     <p>Match NOPOL + KUANTUM → Download ZIP atau Gabung 1 PDF — File dijamin bisa dibuka ✅</p>
   </div>
 </div>
