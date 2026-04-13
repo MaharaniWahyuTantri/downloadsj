@@ -7,7 +7,7 @@ import re
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
-st.set_page_config(page_title="Surat Jalan Filter", page_icon="🚛", layout="wide")
+st.set_page_config(page_title="Otomatis Download SJ", page_icon="🚛", layout="wide")
 
 st.markdown("""
 <style>
@@ -421,7 +421,8 @@ st.markdown("""
 <div class="main-header">
   <div style="font-size:2.4rem">🚛</div>
   <div>
-    <h1>Surat Jalan Filter</h1>
+    <h1>Dowload Surat Jalan in Bulk</h1>
+    <h2>Semangat kerjanya, nanti ketemu CORTIS!</h2>
     <p>Match NOPOL + KUANTUM → Download ZIP atau Gabung 1 PDF — File dijamin bisa dibuka ✅</p>
   </div>
 </div>
