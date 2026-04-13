@@ -243,27 +243,28 @@ def img_bytes_to_pdf(img_bytes):
         return None
 
 def merge_pdfs(content_list):
-    errors = []
+    """
+    Gabungkan list bytes (PDF / JPG / PNG) → 1 PDF.
+    Return bytes PDF atau None jika gagal.
+    """
     try:
         from pypdf import PdfWriter, PdfReader
-    except ImportError as e1:
+    except ImportError:
         try:
             from PyPDF2 import PdfWriter, PdfReader
-        except ImportError as e2:
-            return None, [f"Import error pypdf: {e1} | PyPDF2: {e2}"]
+        except ImportError:
+            return None
 
     writer = PdfWriter()
-    for idx, ct in enumerate(content_list):
+    for ct in content_list:
         if not ct:
-            errors.append(f"Item {idx}: content kosong/None")
             continue
         ftype = detect_file_type(ct)
         if ftype == 'pdf':
             try:
                 for page in PdfReader(io.BytesIO(ct)).pages:
                     writer.add_page(page)
-            except Exception as e:
-                errors.append(f"Item {idx} (PDF): {e}")
+            except Exception:
                 continue
         elif ftype in ('jpg', 'png'):
             converted = img_bytes_to_pdf(ct)
@@ -271,22 +272,16 @@ def merge_pdfs(content_list):
                 try:
                     for page in PdfReader(io.BytesIO(converted)).pages:
                         writer.add_page(page)
-                except Exception as e:
-                    errors.append(f"Item {idx} (IMG→PDF): {e}")
+                except Exception:
                     continue
-            else:
-                errors.append(f"Item {idx}: konversi gambar ke PDF gagal")
-        else:
-            errors.append(f"Item {idx}: tipe file tidak dikenali ({ftype}), size={len(ct)} bytes")
 
     if len(writer.pages) == 0:
-        return None, errors or ["Tidak ada halaman berhasil ditambahkan"]
-
+        return None
     out = io.BytesIO()
     writer.write(out)
     out.seek(0)
-    return out.read(), errors
-    
+    return out.read()
+
 def read_file(f):
     return pd.read_csv(f) if f.name.lower().endswith('.csv') else pd.read_excel(f)
 
@@ -632,24 +627,18 @@ if st.session_state.result_df is not None:
 
             if ok_files:
                 with st.spinner('Menggabungkan semua file menjadi 1 PDF...'):
+                    # Ambil konten sesuai urutan disp
                     ordered = []
                     for i, row in disp.iterrows():
                         ct = new_cache.get(row['surat_jalan']) or \
                              st.session_state.dl_cache.get(row['surat_jalan'])
                         if ct:
                             ordered.append(ct)
-        
-                    # Debug info
-                    type_counts = {}
-                    for ct in ordered:
-                        t = detect_file_type(ct)
-                        type_counts[t] = type_counts.get(t, 0) + 1
-                    st.info(f"🔍 Debug: {len(ordered)} file disiapkan → tipe: {type_counts}")
-        
-                    merged, merge_errors = merge_pdfs(ordered)
-        
+                    merged = merge_pdfs(ordered)
+
                 if merged:
-                    st.success(f'✅ {len(ordered)} file berhasil digabung ({len(merged)//1024:,} KB)')
+                    st.success(f'✅ {len(ordered)} file berhasil digabung menjadi 1 PDF '
+                               f'({len(merged)//1024:,} KB)')
                     st.download_button(
                         f'💾 Simpan PDF Gabungan ({len(ordered)} surat jalan)',
                         merged,
@@ -658,16 +647,16 @@ if st.session_state.result_df is not None:
                         key='dl_merged_pdf'
                     )
                 else:
-                    st.error('❌ Gagal membuat PDF gabungan.')
-                    if merge_errors:
-                        with st.expander('🔍 Detail error per file'):
-                            for e in merge_errors:
-                                st.write(f'• {e}')
-        
+                    st.error(
+                        '❌ Gagal membuat PDF gabungan. '
+                        'Pastikan `pypdf` dan `reportlab` terinstall: '
+                        '`pip install pypdf reportlab Pillow`'
+                    )
             if fail_list:
                 with st.expander(f'❌ {len(fail_list)} file tidak bisa digabung'):
                     for f in fail_list:
                         st.write(f'• {f}')
+
         # ── TABEL DETAIL PER BARIS ─────────────────────────────────────────────
         st.markdown('<div class="section-label">Detail per Surat Jalan</div>', unsafe_allow_html=True)
         hcols = st.columns([0.5, 2.5, 1.5, 2, 1.2, 1.8])
