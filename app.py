@@ -7,7 +7,7 @@ import re
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
-st.set_page_config(page_title="Otomatis Download SJ", page_icon="🚛", layout="wide")
+st.set_page_config(page_title="Tantri Imoet", page_icon="🚛", layout="wide")
 
 st.markdown("""
 <style>
