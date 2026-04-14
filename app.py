@@ -308,7 +308,7 @@ def load_file2(raw_df):
     if any(str(v).upper().strip() in ['NOPOL','KUANTUM','FOTO SURAT JALAN','SURAT JALAN'] for v in frow):
         df.columns = [str(c).strip() for c in df.iloc[0]]
         df = df[1:].reset_index(drop=True)
-    nc = find_col(df, ['nopol','nomor polisi','no pol','no.pol','nopolisi']) or find_col(df, ['pol'])
+    nc = find_col(df, ['nopol','nomor polisi','no pol','no truk','no.pol','nopolisi']) or find_col(df, ['pol'])
     kc = find_col(df, ['kuantum','quantum','tonase','tonage','qty','jumlah','volume','berat'])
     lc = find_col(df, ['surat jalan','suratjalan','foto surat','foto','link','url','drive','gdrive'])
     if not nc:
