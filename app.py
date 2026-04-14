@@ -12,140 +12,209 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 # ══════════════════════════════════════════════════════════════════════════════
 st.set_page_config(page_title="Surat Jalan Bulk Downloader", page_icon="📦", layout="wide")
 
-st.markdown("""
+# ══════════════════════════════════════════════════════════════════════════════
+# THEME INIT
+# ══════════════════════════════════════════════════════════════════════════════
+if 'dark_mode' not in st.session_state:
+    st.session_state.dark_mode = True
+
+# ── THEME VARIABLES ───────────────────────────────────────────────────────────
+if st.session_state.dark_mode:
+    THEME = {
+        'bg':       '#0f1117',
+        'surface':  '#1a1d27',
+        'surface2': '#222535',
+        'border':   '#2d3048',
+        'accent':   '#6366f1',
+        'accent2':  '#818cf8',
+        'green':    '#22c55e',
+        'yellow':   '#f59e0b',
+        'red':      '#ef4444',
+        'text':     '#e2e8f0',
+        'muted':    '#64748b',
+        'toggle_bg':'#222535',
+        'toggle_border':'#2d3048',
+        'toggle_icon':'☀️',
+        'toggle_label':'Light Mode',
+    }
+else:
+    THEME = {
+        'bg':       '#f1f5f9',
+        'surface':  '#ffffff',
+        'surface2': '#f8fafc',
+        'border':   '#e2e8f0',
+        'accent':   '#4f46e5',
+        'accent2':  '#6366f1',
+        'green':    '#16a34a',
+        'yellow':   '#d97706',
+        'red':      '#dc2626',
+        'text':     '#1e293b',
+        'muted':    '#64748b',
+        'toggle_bg':'#f8fafc',
+        'toggle_border':'#e2e8f0',
+        'toggle_icon':'🌙',
+        'toggle_label':'Dark Mode',
+    }
+
+T = THEME
+
+st.markdown(f"""
 <style>
 @import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;700&display=swap');
 
-:root {
-  --bg:       #0f1117;
-  --surface:  #1a1d27;
-  --surface2: #222535;
-  --border:   #2d3048;
-  --accent:   #6366f1;
-  --accent2:  #818cf8;
-  --green:    #22c55e;
-  --yellow:   #f59e0b;
-  --red:      #ef4444;
-  --text:     #e2e8f0;
-  --muted:    #64748b;
+:root {{
+  --bg:       {T['bg']};
+  --surface:  {T['surface']};
+  --surface2: {T['surface2']};
+  --border:   {T['border']};
+  --accent:   {T['accent']};
+  --accent2:  {T['accent2']};
+  --green:    {T['green']};
+  --yellow:   {T['yellow']};
+  --red:      {T['red']};
+  --text:     {T['text']};
+  --muted:    {T['muted']};
   --radius:   12px;
-}
+}}
 
-*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+*, *::before, *::after {{ box-sizing: border-box; margin: 0; padding: 0; }}
 
-html, body, [class*="css"] {
+html, body, [class*="css"] {{
   font-family: 'Plus Jakarta Sans', sans-serif;
   background: var(--bg);
   color: var(--text);
-}
+}}
 
-.stApp { background: var(--bg); }
-.main .block-container { padding: 1.5rem 2rem; max-width: 1300px; }
+.stApp {{ background: var(--bg); }}
+.main .block-container {{ padding: 1.5rem 2rem; max-width: 1300px; }}
 
 /* ── HEADER ── */
-.app-header {
-  display: flex; align-items: center; gap: 20px;
-  padding: 28px 32px;
-  background: linear-gradient(135deg, #1a1d27 0%, #222535 100%);
+.app-header {{
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 24px 32px;
+  background: {'linear-gradient(135deg, #1a1d27 0%, #222535 100%)' if T['bg'] == '#0f1117' else 'linear-gradient(135deg, #ffffff 0%, #f8fafc 100%)'};
   border: 1px solid var(--border);
   border-radius: 16px;
   margin-bottom: 28px;
   position: relative;
   overflow: hidden;
-}
-.app-header::before {
+}}
+.app-header::before {{
   content: '';
   position: absolute; inset: 0;
-  background: radial-gradient(ellipse at 0% 50%, rgba(99,102,241,.15) 0%, transparent 60%);
+  background: radial-gradient(ellipse at 0% 50%, rgba(99,102,241,.12) 0%, transparent 60%);
   pointer-events: none;
-}
-.app-header-icon { font-size: 3rem; flex-shrink: 0; }
-.app-header-text h1 { font-size: 1.6rem; font-weight: 800; color: #fff; }
-.app-header-text p  { font-size: 0.82rem; color: var(--muted); margin-top: 4px; }
+}}
+.app-header-left {{ display: flex; align-items: center; gap: 20px; position: relative; }}
+.app-header-icon {{ font-size: 3rem; flex-shrink: 0; }}
+.app-header-text h1 {{ font-size: 1.6rem; font-weight: 800; color: {'#fff' if T['bg'] == '#0f1117' else '#1e293b'}; }}
+.app-header-text p  {{ font-size: 0.82rem; color: var(--muted); margin-top: 4px; }}
+
+/* ── THEME TOGGLE ── */
+.theme-toggle-wrap {{ position: relative; z-index: 1; }}
+.theme-toggle-btn {{
+  display: flex; align-items: center; gap: 8px;
+  background: {T['toggle_bg']};
+  border: 1.5px solid {T['toggle_border']};
+  border-radius: 50px;
+  padding: 8px 16px;
+  cursor: pointer;
+  font-size: 0.78rem;
+  font-weight: 600;
+  color: var(--text);
+  white-space: nowrap;
+  transition: all .2s;
+  font-family: 'Plus Jakarta Sans', sans-serif;
+}}
+.theme-toggle-btn:hover {{
+  border-color: var(--accent);
+  background: rgba(99,102,241,.1);
+  color: var(--accent2);
+}}
 
 /* ── UPLOAD ZONE ── */
-.upload-zone {
+.upload-zone {{
   background: var(--surface);
   border: 1px solid var(--border);
   border-radius: var(--radius);
   padding: 20px 24px;
   margin-bottom: 8px;
-}
-.upload-zone-title {
+}}
+.upload-zone-title {{
   font-size: 0.7rem; font-weight: 700; text-transform: uppercase;
   letter-spacing: 1.5px; color: var(--accent2); margin-bottom: 6px;
-}
-.upload-zone-desc { font-size: 0.78rem; color: var(--muted); }
+}}
+.upload-zone-desc {{ font-size: 0.78rem; color: var(--muted); }}
 
-div[data-testid="stFileUploader"] {
+div[data-testid="stFileUploader"] {{
   background: var(--surface2) !important;
   border: 1.5px dashed var(--border) !important;
   border-radius: 10px !important;
   transition: border-color .2s;
-}
-div[data-testid="stFileUploader"]:hover {
+}}
+div[data-testid="stFileUploader"]:hover {{
   border-color: var(--accent) !important;
-}
+}}
 
 /* ── STAT CARDS ── */
-.stats-row {
+.stats-row {{
   display: grid; grid-template-columns: repeat(4, 1fr);
   gap: 14px; margin: 24px 0;
-}
-.stat-card {
+}}
+.stat-card {{
   background: var(--surface);
   border: 1px solid var(--border);
   border-radius: var(--radius);
   padding: 20px 18px;
   text-align: center;
   position: relative; overflow: hidden;
-}
-.stat-card::after {
+}}
+.stat-card::after {{
   content: '';
   position: absolute; top: 0; left: 0; right: 0; height: 3px;
   border-radius: 12px 12px 0 0;
-}
-.stat-card.blue::after  { background: var(--accent); }
-.stat-card.green::after { background: var(--green); }
-.stat-card.red::after   { background: var(--red); }
-.stat-card.yellow::after{ background: var(--yellow); }
+}}
+.stat-card.blue::after  {{ background: var(--accent); }}
+.stat-card.green::after {{ background: var(--green); }}
+.stat-card.red::after   {{ background: var(--red); }}
+.stat-card.yellow::after{{ background: var(--yellow); }}
 
-.stat-num {
+.stat-num {{
   font-family: 'JetBrains Mono', monospace;
   font-size: 2.4rem; font-weight: 700; line-height: 1;
-}
-.stat-num.blue   { color: var(--accent2); }
-.stat-num.green  { color: var(--green); }
-.stat-num.red    { color: var(--red); }
-.stat-num.yellow { color: var(--yellow); }
-.stat-label {
+}}
+.stat-num.blue   {{ color: var(--accent2); }}
+.stat-num.green  {{ color: var(--green); }}
+.stat-num.red    {{ color: var(--red); }}
+.stat-num.yellow {{ color: var(--yellow); }}
+.stat-label {{
   font-size: 0.68rem; color: var(--muted); margin-top: 8px;
   text-transform: uppercase; letter-spacing: .8px; font-weight: 600;
-}
+}}
 
 /* ── ALERTS ── */
-.alert {
+.alert {{
   border-radius: var(--radius); padding: 14px 18px;
   margin: 12px 0; font-size: 0.83rem; line-height: 1.6;
   display: flex; align-items: flex-start; gap: 10px;
-}
-.alert-icon { flex-shrink: 0; font-size: 1rem; margin-top: 1px; }
-.alert.info    { background: rgba(99,102,241,.1); border: 1px solid rgba(99,102,241,.3); color: #a5b4fc; }
-.alert.success { background: rgba(34,197,94,.1);  border: 1px solid rgba(34,197,94,.3);  color: #86efac; }
-.alert.warn    { background: rgba(245,158,11,.1); border: 1px solid rgba(245,158,11,.3); color: #fcd34d; }
-.alert.error   { background: rgba(239,68,68,.1);  border: 1px solid rgba(239,68,68,.3);  color: #fca5a5; }
+}}
+.alert-icon {{ flex-shrink: 0; font-size: 1rem; margin-top: 1px; }}
+.alert.info    {{ background: rgba(99,102,241,.1); border: 1px solid rgba(99,102,241,.3); color: {'#a5b4fc' if T['bg'] == '#0f1117' else '#4338ca'}; }}
+.alert.success {{ background: rgba(34,197,94,.1);  border: 1px solid rgba(34,197,94,.3);  color: {'#86efac' if T['bg'] == '#0f1117' else '#15803d'}; }}
+.alert.warn    {{ background: rgba(245,158,11,.1); border: 1px solid rgba(245,158,11,.3); color: {'#fcd34d' if T['bg'] == '#0f1117' else '#b45309'}; }}
+.alert.error   {{ background: rgba(239,68,68,.1);  border: 1px solid rgba(239,68,68,.3);  color: {'#fca5a5' if T['bg'] == '#0f1117' else '#b91c1c'}; }}
 
 /* ── SECTION DIVIDER ── */
-.section-label {
+.section-label {{
   font-size: 0.68rem; font-weight: 700; text-transform: uppercase;
   letter-spacing: 2px; color: var(--muted);
   display: flex; align-items: center; gap: 12px;
   margin: 28px 0 16px;
-}
-.section-label::after { content: ''; flex: 1; height: 1px; background: var(--border); }
+}}
+.section-label::after {{ content: ''; flex: 1; height: 1px; background: var(--border); }}
 
 /* ── BUTTONS ── */
-.stButton > button {
+.stButton > button {{
   background: var(--surface2) !important;
   color: var(--text) !important;
   border: 1px solid var(--border) !important;
@@ -155,93 +224,79 @@ div[data-testid="stFileUploader"]:hover {
   padding: 8px 16px !important;
   transition: all .15s !important;
   font-family: 'Plus Jakarta Sans', sans-serif !important;
-}
-.stButton > button:hover {
+}}
+.stButton > button:hover {{
   background: rgba(99,102,241,.15) !important;
   border-color: var(--accent) !important;
   color: var(--accent2) !important;
-}
+}}
 
 /* ── TABLE CARD ── */
-.table-card {
+.table-card {{
   background: var(--surface);
   border: 1px solid var(--border);
   border-radius: var(--radius);
   padding: 20px 24px;
   margin: 12px 0;
-}
-.table-card.warn  { border-color: rgba(245,158,11,.4); }
-.table-card.error { border-color: rgba(239,68,68,.4); }
-.table-card-title { font-size: 0.9rem; font-weight: 700; margin-bottom: 14px; }
-.table-card-title.warn  { color: var(--yellow); }
-.table-card-title.error { color: var(--red); }
+}}
+.table-card.warn  {{ border-color: rgba(245,158,11,.4); }}
+.table-card.error {{ border-color: rgba(239,68,68,.4); }}
+.table-card-title {{ font-size: 0.9rem; font-weight: 700; margin-bottom: 14px; }}
+.table-card-title.warn  {{ color: var(--yellow); }}
+.table-card-title.error {{ color: var(--red); }}
 
-/* ── ROW ITEM ── */
-.row-item {
-  display: flex; align-items: center; gap: 12px;
-  padding: 10px 14px;
-  border-radius: 8px;
-  background: var(--surface2);
-  border: 1px solid var(--border);
-  margin-bottom: 6px;
-}
-.row-badge {
-  font-family: 'JetBrains Mono', monospace;
-  font-size: 0.7rem; color: var(--muted);
-  background: var(--bg); border-radius: 4px;
-  padding: 2px 6px; flex-shrink: 0;
-}
-.row-nopol {
-  font-family: 'JetBrains Mono', monospace;
-  font-weight: 700; color: var(--accent2);
-  font-size: 0.88rem; flex: 1;
-}
-.row-qty {
-  font-size: 0.82rem; color: var(--muted); flex-shrink: 0;
-}
+/* ── TABS ── */
+div[data-testid="stTabs"] button {{
+  font-family: 'Plus Jakarta Sans', sans-serif !important;
+  font-weight: 600 !important;
+  font-size: 0.84rem !important;
+}}
+div[data-testid="stTabs"] button[aria-selected="true"] {{
+  color: var(--accent2) !important;
+  border-bottom-color: var(--accent) !important;
+}}
 
 /* ── PROGRESS ── */
-.stProgress > div > div { background: var(--accent) !important; border-radius: 4px !important; }
+.stProgress > div > div {{ background: var(--accent) !important; border-radius: 4px !important; }}
 
 /* ── DATAFRAME ── */
-div[data-testid="stDataFrame"] { border-radius: 10px; overflow: hidden; }
+div[data-testid="stDataFrame"] {{ border-radius: 10px; overflow: hidden; }}
+div[data-testid="stDataFrame"] * {{ color: var(--text) !important; background: var(--surface2) !important; }}
 
 /* ── INPUTS ── */
-.stTextInput > div > div > input {
+.stTextInput > div > div > input {{
   background: var(--surface2) !important;
   border: 1px solid var(--border) !important;
   border-radius: 8px !important;
   color: var(--text) !important;
   font-family: 'Plus Jakarta Sans', sans-serif !important;
-}
-.stTextInput > div > div > input:focus {
+}}
+.stTextInput > div > div > input:focus {{
   border-color: var(--accent) !important;
   box-shadow: 0 0 0 2px rgba(99,102,241,.2) !important;
-}
-
-/* ── SPINNER ── */
-.stSpinner { color: var(--accent2) !important; }
+}}
 
 /* ── EXPANDER ── */
-details { background: var(--surface) !important; border: 1px solid var(--border) !important;
-  border-radius: 10px !important; }
+details {{
+  background: var(--surface) !important;
+  border: 1px solid var(--border) !important;
+  border-radius: 10px !important;
+}}
 
 /* ── DOWNLOAD BTN ── */
-.stDownloadButton > button {
+.stDownloadButton > button {{
   background: linear-gradient(135deg, var(--accent), #4f46e5) !important;
   color: white !important;
   border: none !important;
   font-weight: 700 !important;
   border-radius: 8px !important;
   transition: opacity .15s !important;
-}
-.stDownloadButton > button:hover { opacity: 0.88 !important; }
+}}
+.stDownloadButton > button:hover {{ opacity: 0.88 !important; }}
 
-/* ── SUCCESS/ERROR from streamlit ── */
-.element-container .stAlert { border-radius: 10px !important; }
-
-/* ── CHECKBOX ── */
-.stCheckbox { color: var(--muted) !important; }
+/* ── GENERAL TEXT COLOR FIX FOR LIGHT ── */
+p, span, label, div {{ color: var(--text); }}
+code {{ background: var(--surface2); color: var(--accent2); border-radius: 4px; padding: 2px 5px; }}
 </style>
 """, unsafe_allow_html=True)
 
@@ -308,7 +363,6 @@ def _read_chunks(resp):
     return b''.join(resp.iter_content(chunk_size=65536))
 
 def download_gdrive(fid, retries=3, timeout=40):
-    """Multi-layer Google Drive download bypass."""
     if not fid:
         return None
     session = requests.Session()
@@ -328,34 +382,23 @@ def download_gdrive(fid, retries=3, timeout=40):
 
     for attempt in range(retries):
         try:
-            # Layer 1: direct
             r1  = session.get(base, timeout=timeout, stream=True, allow_redirects=True)
             raw = _read_chunks(r1)
             if detect_filetype(raw) != 'html' and len(raw) > 512:
                 return raw
-
             html = raw.decode('utf-8', errors='ignore')
-
-            # Layer 2: form confirm token
             m = re.search(r'name="confirm"\s+value="([^"]+)"', html)
             if m:
                 result = try_url(f'{base}&confirm={m.group(1)}')
                 if result: return result
-
-            # Layer 3: confirm=t (modern GDrive)
             result = try_url(f'{base}&confirm=t')
             if result: return result
-
-            # Layer 4: alternate URL form
             result = try_url(f'https://drive.google.com/uc?id={fid}&export=download&confirm=t')
             if result: return result
-
         except Exception:
             pass
-
         if attempt < retries - 1:
             time.sleep(2 ** attempt)
-
     return None
 
 def download_file(link):
@@ -465,7 +508,6 @@ def load_df1(df):
 def load_df2(raw_df):
     df = raw_df.copy()
     if df.empty: return pd.DataFrame()
-    # Auto-detect header row
     first = df.iloc[0].tolist()
     if any(str(v).upper().strip() in ['NOPOL','KUANTUM','FOTO SURAT JALAN','SURAT JALAN']
            for v in first):
@@ -526,7 +568,6 @@ def run_downloads(disp, label='Mengunduh'):
                 new_cache[res['link']] = ct
                 ext  = ext_from_content(ct)
                 fn   = safe_filename(res['nopol'], res['kuantum'], res['idx'], ext)
-                # deduplicate
                 base_fn, c = fn, 1
                 while fn in ok_files:
                     fn = base_fn.rsplit('.', 1)[0] + f'_{c}.' + base_fn.rsplit('.', 1)[-1]
@@ -559,17 +600,31 @@ for k, v in _defaults.items():
         st.session_state[k] = v
 
 # ══════════════════════════════════════════════════════════════════════════════
-# HEADER
+# HEADER + THEME TOGGLE
 # ══════════════════════════════════════════════════════════════════════════════
-st.markdown("""
-<div class="app-header">
-  <div class="app-header-icon">📦</div>
-  <div class="app-header-text">
-    <h1>Surat Jalan Bulk Downloader</h1>
-    <p>Match NOPOL + KUANTUM → Download ZIP terpisah atau gabung 1 PDF sekaligus</p>
-  </div>
-</div>
-""", unsafe_allow_html=True)
+header_left, header_right = st.columns([8, 2])
+
+with header_left:
+    st.markdown("""
+    <div style="display:flex;align-items:center;gap:20px;padding:20px 0 10px">
+      <div style="font-size:3rem">📦</div>
+      <div>
+        <div style="font-size:1.6rem;font-weight:800">Surat Jalan Bulk Downloader</div>
+        <div style="font-size:0.82rem;color:var(--muted);margin-top:4px">
+          Match NOPOL + KUANTUM → Download ZIP terpisah atau gabung 1 PDF sekaligus
+        </div>
+      </div>
+    </div>
+    """, unsafe_allow_html=True)
+
+with header_right:
+    st.markdown('<div style="height:24px"></div>', unsafe_allow_html=True)
+    toggle_label = f"{T['toggle_icon']}  {T['toggle_label']}"
+    if st.button(toggle_label, key='theme_toggle', use_container_width=True):
+        st.session_state.dark_mode = not st.session_state.dark_mode
+        st.rerun()
+
+st.markdown('<hr style="border-color:var(--border);margin:0 0 24px">', unsafe_allow_html=True)
 
 # ══════════════════════════════════════════════════════════════════════════════
 # UPLOAD
@@ -711,211 +766,204 @@ if st.session_state.result_df is not None:
     """, unsafe_allow_html=True)
 
     # ══════════════════════════════════════════════════════════════════════════
-    # SECTION 1 — MATCHED DATA
+    # TABS — MATCHED  |  UNMATCHED A  |  UNMATCHED B  |  SEMUA TIDAK MATCH
     # ══════════════════════════════════════════════════════════════════════════
-    st.markdown('<div class="section-label">✅ Data Berhasil Ditemukan</div>',
-                unsafe_allow_html=True)
+    n_diff = len(nopol_diff) if nopol_diff is not None else 0
+    n_miss = len(nopol_miss) if nopol_miss is not None else 0
+    n_all  = len(missing)
 
-    if found.empty:
-        st.markdown('<div class="alert warn"><span class="alert-icon">⚠️</span>'
-                    '0 surat jalan ditemukan. Lihat tabel di bawah untuk detail penyebabnya.</div>',
-                    unsafe_allow_html=True)
-    else:
-        # Search filter
-        search = st.text_input('', placeholder='🔍  Filter NOPOL...',
-                               label_visibility='collapsed', key='search_found')
-        disp = found.copy()
-        if search.strip():
-            disp = disp[disp['nopol'].str.contains(
-                re.escape(norm_nopol(search.strip())), na=False, case=False)
-            ].reset_index(drop=True)
+    tab_matched, tab_a, tab_b, tab_all = st.tabs([
+        f"✅ Berhasil Match  ({len(found)})",
+        f"⚠️ Kuantum Beda  ({n_diff})",
+        f"❌ NOPOL Tidak Ada  ({n_miss})",
+        f"📋 Semua Tidak Match  ({n_all})",
+    ])
 
-        st.markdown(f'Menampilkan **{len(disp)}** dari **{len(found)}** surat jalan.')
+    # ══════════════════════════════════════════════════════════════════════════
+    # TAB 1 — MATCHED DATA
+    # ══════════════════════════════════════════════════════════════════════════
+    with tab_matched:
+        if found.empty:
+            st.markdown('<div class="alert warn"><span class="alert-icon">⚠️</span>'
+                        '0 surat jalan ditemukan. Lihat tab lain untuk detail penyebabnya.</div>',
+                        unsafe_allow_html=True)
+        else:
+            search = st.text_input('', placeholder='🔍  Filter NOPOL...',
+                                   label_visibility='collapsed', key='search_found')
+            disp = found.copy()
+            if search.strip():
+                disp = disp[disp['nopol'].str.contains(
+                    re.escape(norm_nopol(search.strip())), na=False, case=False)
+                ].reset_index(drop=True)
 
-        # ── BULK ACTION BUTTONS ────────────────────────────────────────────────
-        b1, b2, b3, _ = st.columns([2, 2, 2, 4])
-        with b1:
-            do_zip    = st.button('📦  Download ZIP',    use_container_width=True)
-        with b2:
-            do_merge  = st.button('📄  Gabung 1 PDF',    use_container_width=True)
-        with b3:
-            do_cache  = st.button('⚡  Pre-load Semua',  use_container_width=True,
-                                  help='Download semua ke memori agar per-baris instan')
+            st.markdown(f'Menampilkan **{len(disp)}** dari **{len(found)}** surat jalan.')
 
-        # ── PRE-LOAD ───────────────────────────────────────────────────────────
-        if do_cache and not disp.empty:
-            need = [r['surat_jalan'] for _, r in disp.iterrows()
-                    if r['surat_jalan'] not in st.session_state.dl_cache]
-            if not need:
-                st.markdown('<div class="alert success"><span class="alert-icon">✅</span>'
-                            'Semua file sudah ada di cache!</div>', unsafe_allow_html=True)
-            else:
-                cache_snap = dict(st.session_state.dl_cache)
-                tasks_pre  = [{'idx': i, 'nopol': r['nopol'],
-                                'kuantum': int(r['kuantum']), 'link': r['surat_jalan']}
-                               for i, r in disp.iterrows()
-                               if r['surat_jalan'] not in cache_snap]
-                _, _, new_cache = run_downloads(
-                    disp[disp['surat_jalan'].isin(need)].reset_index(drop=True),
-                    label='Pre-load'
-                )
+            # ── BULK ACTION BUTTONS ────────────────────────────────────────────
+            b1, b2, b3, _ = st.columns([2, 2, 2, 4])
+            with b1:
+                do_zip    = st.button('📦  Download ZIP',    use_container_width=True)
+            with b2:
+                do_merge  = st.button('📄  Gabung 1 PDF',    use_container_width=True)
+            with b3:
+                do_cache  = st.button('⚡  Pre-load Semua',  use_container_width=True,
+                                      help='Download semua ke memori agar per-baris instan')
+
+            if do_cache and not disp.empty:
+                need = [r['surat_jalan'] for _, r in disp.iterrows()
+                        if r['surat_jalan'] not in st.session_state.dl_cache]
+                if not need:
+                    st.markdown('<div class="alert success"><span class="alert-icon">✅</span>'
+                                'Semua file sudah ada di cache!</div>', unsafe_allow_html=True)
+                else:
+                    _, _, new_cache = run_downloads(
+                        disp[disp['surat_jalan'].isin(need)].reset_index(drop=True),
+                        label='Pre-load'
+                    )
+                    st.session_state.dl_cache.update(new_cache)
+
+            if do_zip and not disp.empty:
+                ok_files, fails, new_cache = run_downloads(disp)
                 st.session_state.dl_cache.update(new_cache)
-
-        # ── ZIP DOWNLOAD ───────────────────────────────────────────────────────
-        if do_zip and not disp.empty:
-            ok_files, fails, new_cache = run_downloads(disp)
-            st.session_state.dl_cache.update(new_cache)
-            if ok_files:
-                st.download_button(
-                    f'💾  Simpan ZIP ({len(ok_files)} file)',
-                    make_zip(ok_files),
-                    'surat_jalan_bulk.zip', 'application/zip',
-                    key='dl_zip'
-                )
-            if fails:
-                with st.expander(f'❌ {len(fails)} file gagal'):
-                    for f in fails: st.write(f'• {f}')
-
-        # ── MERGE PDF ─────────────────────────────────────────────────────────
-        if do_merge and not disp.empty:
-            ok_files, fails, new_cache = run_downloads(disp)
-            st.session_state.dl_cache.update(new_cache)
-            if ok_files:
-                with st.spinner('Menggabungkan file menjadi 1 PDF...'):
-                    ordered = [
-                        new_cache.get(r['surat_jalan']) or
-                        st.session_state.dl_cache.get(r['surat_jalan'])
-                        for _, r in disp.iterrows()
-                    ]
-                    merged = merge_to_pdf([c for c in ordered if c])
-                if merged:
-                    st.markdown(
-                        f'<div class="alert success"><span class="alert-icon">✅</span>'
-                        f'<b>{len([c for c in ordered if c])}</b> file digabung — '
-                        f'ukuran: <b>{len(merged)//1024:,} KB</b></div>',
-                        unsafe_allow_html=True
-                    )
+                if ok_files:
                     st.download_button(
-                        f'💾  Simpan PDF Gabungan',
-                        merged, 'surat_jalan_gabungan.pdf', 'application/pdf',
-                        key='dl_merged'
+                        f'💾  Simpan ZIP ({len(ok_files)} file)',
+                        make_zip(ok_files),
+                        'surat_jalan_bulk.zip', 'application/zip',
+                        key='dl_zip'
                     )
-                else:
-                    st.markdown(
-                        '<div class="alert error"><span class="alert-icon">❌</span>'
-                        'Gagal membuat PDF gabungan. Pastikan <code>pypdf</code>, '
-                        '<code>reportlab</code>, dan <code>Pillow</code> terinstall.</div>',
-                        unsafe_allow_html=True
-                    )
-            if fails:
-                with st.expander(f'❌ {len(fails)} file tidak bisa digabung'):
-                    for f in fails: st.write(f'• {f}')
+                if fails:
+                    with st.expander(f'❌ {len(fails)} file gagal'):
+                        for f in fails: st.write(f'• {f}')
 
-        # ── PER-ROW TABLE ──────────────────────────────────────────────────────
-        st.markdown('<div class="section-label">Detail Surat Jalan</div>',
-                    unsafe_allow_html=True)
+            if do_merge and not disp.empty:
+                ok_files, fails, new_cache = run_downloads(disp)
+                st.session_state.dl_cache.update(new_cache)
+                if ok_files:
+                    with st.spinner('Menggabungkan file menjadi 1 PDF...'):
+                        ordered = [
+                            new_cache.get(r['surat_jalan']) or
+                            st.session_state.dl_cache.get(r['surat_jalan'])
+                            for _, r in disp.iterrows()
+                        ]
+                        merged = merge_to_pdf([c for c in ordered if c])
+                    if merged:
+                        st.markdown(
+                            f'<div class="alert success"><span class="alert-icon">✅</span>'
+                            f'<b>{len([c for c in ordered if c])}</b> file digabung — '
+                            f'ukuran: <b>{len(merged)//1024:,} KB</b></div>',
+                            unsafe_allow_html=True
+                        )
+                        st.download_button(
+                            f'💾  Simpan PDF Gabungan',
+                            merged, 'surat_jalan_gabungan.pdf', 'application/pdf',
+                            key='dl_merged'
+                        )
+                    else:
+                        st.markdown(
+                            '<div class="alert error"><span class="alert-icon">❌</span>'
+                            'Gagal membuat PDF gabungan. Pastikan <code>pypdf</code>, '
+                            '<code>reportlab</code>, dan <code>Pillow</code> terinstall.</div>',
+                            unsafe_allow_html=True
+                        )
+                if fails:
+                    with st.expander(f'❌ {len(fails)} file tidak bisa digabung'):
+                        for f in fails: st.write(f'• {f}')
 
-        # Header
-        h = st.columns([0.5, 2.5, 1.5, 2.5, 1, 1.8])
-        for col, lbl in zip(h, ['#', 'NOPOL', 'KUANTUM', 'Link', '👁', '⬇']):
-            col.markdown(f'<span style="font-size:.7rem;font-weight:700;text-transform:uppercase;'
-                         f'letter-spacing:1px;color:#64748b">{lbl}</span>',
-                         unsafe_allow_html=True)
-        st.markdown('<hr style="border-color:#2d3048;margin:6px 0 10px">', unsafe_allow_html=True)
+            # ── PER-ROW TABLE ──────────────────────────────────────────────────
+            st.markdown('<div class="section-label">Detail Surat Jalan</div>',
+                        unsafe_allow_html=True)
 
-        for i, row in disp.iterrows():
-            nopol   = row['nopol']
-            kuantum = int(row['kuantum'])
-            link    = row['surat_jalan']
-            fid     = extract_fid(link)
-            view_url = (f'https://drive.google.com/file/d/{fid}/view' if fid else link)
-
-            cols = st.columns([0.5, 2.5, 1.5, 2.5, 1, 1.8])
-            cols[0].markdown(f'<span style="font-size:.75rem;color:#64748b;'
-                             f'font-family:\'JetBrains Mono\',monospace">#{i+1}</span>',
+            h = st.columns([0.5, 2.5, 1.5, 2.5, 1, 1.8])
+            for col, lbl in zip(h, ['#', 'NOPOL', 'KUANTUM', 'Link', '👁', '⬇']):
+                col.markdown(f'<span style="font-size:.7rem;font-weight:700;text-transform:uppercase;'
+                             f'letter-spacing:1px;color:#64748b">{lbl}</span>',
                              unsafe_allow_html=True)
-            cols[1].markdown(f'<code style="color:#818cf8;font-size:.82rem">{nopol}</code>',
-                             unsafe_allow_html=True)
-            cols[2].markdown(f'<b style="color:#e2e8f0">{kuantum:,}</b>', unsafe_allow_html=True)
-            cols[3].markdown(f'[🔗 Buka di Drive]({view_url})')
+            st.markdown('<hr style="border-color:var(--border);margin:6px 0 10px">', unsafe_allow_html=True)
 
-            with cols[4]:
-                if st.button('👁', key=f'v_{i}', help='Toggle preview'):
-                    st.session_state.active_preview = (
-                        None if st.session_state.active_preview == i else i
-                    )
+            for i, row in disp.iterrows():
+                nopol   = row['nopol']
+                kuantum = int(row['kuantum'])
+                link    = row['surat_jalan']
+                fid     = extract_fid(link)
+                view_url = (f'https://drive.google.com/file/d/{fid}/view' if fid else link)
 
-            with cols[5]:
-                cached = st.session_state.dl_cache.get(link)
-                if cached:
-                    ext  = ext_from_content(cached)
-                    mime = 'application/pdf' if ext == 'pdf' else f'image/{ext}'
-                    st.download_button(f'⬇ .{ext.upper()}', cached,
-                                       safe_filename(nopol, kuantum, i, ext),
-                                       mime, key=f'd_{i}')
-                else:
-                    if st.button('⬇ Unduh', key=f'db_{i}'):
-                        with st.spinner(f'Mengunduh {nopol}...'):
-                            ct = download_file(link)
-                        if ct:
-                            st.session_state.dl_cache[link] = ct
-                            ext  = ext_from_content(ct)
-                            mime = 'application/pdf' if ext == 'pdf' else f'image/{ext}'
-                            st.download_button(
-                                f'💾 .{ext.upper()}', ct,
-                                safe_filename(nopol, kuantum, i, ext),
-                                mime, key=f'ds_{i}'
-                            )
-                            st.rerun()
-                        else:
-                            st.markdown(
-                                '<div class="alert error" style="padding:8px 12px;font-size:.75rem">'
-                                '❌ Gagal. File mungkin private, link expired, atau timeout.</div>',
-                                unsafe_allow_html=True
-                            )
+                cols = st.columns([0.5, 2.5, 1.5, 2.5, 1, 1.8])
+                cols[0].markdown(f'<span style="font-size:.75rem;color:#64748b;'
+                                 f'font-family:\'JetBrains Mono\',monospace">#{i+1}</span>',
+                                 unsafe_allow_html=True)
+                cols[1].markdown(f'<code style="color:#818cf8;font-size:.82rem">{nopol}</code>',
+                                 unsafe_allow_html=True)
+                cols[2].markdown(f'<b style="color:var(--text)">{kuantum:,}</b>', unsafe_allow_html=True)
+                cols[3].markdown(f'[🔗 Buka di Drive]({view_url})')
 
-            if st.session_state.active_preview == i:
-                purl = to_preview_url(link)
-                if purl:
-                    import streamlit.components.v1 as components
-                    components.html(
-                        f'<iframe src="{purl}" width="100%" height="680" '
-                        f'style="border:1px solid #2d3048;border-radius:10px;background:#1a1d27" '
-                        f'allow="autoplay"></iframe>',
-                        height=700
-                    )
-                    st.caption(f'Preview kosong? → [buka di tab baru]({purl})')
-                else:
-                    st.markdown('<div class="alert error"><span class="alert-icon">❌</span>'
-                                'Link preview tidak valid.</div>', unsafe_allow_html=True)
+                with cols[4]:
+                    if st.button('👁', key=f'v_{i}', help='Toggle preview'):
+                        st.session_state.active_preview = (
+                            None if st.session_state.active_preview == i else i
+                        )
 
-            st.markdown('<hr style="border-color:#1e2233;margin:4px 0">', unsafe_allow_html=True)
+                with cols[5]:
+                    cached = st.session_state.dl_cache.get(link)
+                    if cached:
+                        ext  = ext_from_content(cached)
+                        mime = 'application/pdf' if ext == 'pdf' else f'image/{ext}'
+                        st.download_button(f'⬇ .{ext.upper()}', cached,
+                                           safe_filename(nopol, kuantum, i, ext),
+                                           mime, key=f'd_{i}')
+                    else:
+                        if st.button('⬇ Unduh', key=f'db_{i}'):
+                            with st.spinner(f'Mengunduh {nopol}...'):
+                                ct = download_file(link)
+                            if ct:
+                                st.session_state.dl_cache[link] = ct
+                                ext  = ext_from_content(ct)
+                                mime = 'application/pdf' if ext == 'pdf' else f'image/{ext}'
+                                st.download_button(
+                                    f'💾 .{ext.upper()}', ct,
+                                    safe_filename(nopol, kuantum, i, ext),
+                                    mime, key=f'ds_{i}'
+                                )
+                                st.rerun()
+                            else:
+                                st.markdown(
+                                    '<div class="alert error" style="padding:8px 12px;font-size:.75rem">'
+                                    '❌ Gagal. File mungkin private, link expired, atau timeout.</div>',
+                                    unsafe_allow_html=True
+                                )
+
+                if st.session_state.active_preview == i:
+                    purl = to_preview_url(link)
+                    if purl:
+                        import streamlit.components.v1 as components
+                        components.html(
+                            f'<iframe src="{purl}" width="100%" height="680" '
+                            f'style="border:1px solid var(--border);border-radius:10px" '
+                            f'allow="autoplay"></iframe>',
+                            height=700
+                        )
+                        st.caption(f'Preview kosong? → [buka di tab baru]({purl})')
+                    else:
+                        st.markdown('<div class="alert error"><span class="alert-icon">❌</span>'
+                                    'Link preview tidak valid.</div>', unsafe_allow_html=True)
+
+                st.markdown('<hr style="border-color:var(--border);margin:4px 0">', unsafe_allow_html=True)
 
     # ══════════════════════════════════════════════════════════════════════════
-    # SECTION 2 — UNMATCHED DATA
+    # TAB 2 — NOPOL ADA, KUANTUM BEDA
     # ══════════════════════════════════════════════════════════════════════════
-    st.markdown('<div class="section-label">❌ Data Tidak Berhasil Match</div>',
-                unsafe_allow_html=True)
-
-    if missing.empty:
-        st.markdown('<div class="alert success"><span class="alert-icon">🎉</span>'
-                    '<b>Semua data berhasil dicocokkan!</b></div>', unsafe_allow_html=True)
-    else:
-        st.markdown(
-            f'<div class="alert error"><span class="alert-icon">❌</span>'
-            f'<b>{len(missing)}</b> kombinasi NOPOL + KUANTUM tidak ditemukan.</div>',
-            unsafe_allow_html=True
-        )
-
-        # Table A — nopol ada tapi kuantum beda
-        if nopol_diff is not None and not nopol_diff.empty:
+    with tab_a:
+        if nopol_diff is None or nopol_diff.empty:
+            st.markdown('<div class="alert success"><span class="alert-icon">🎉</span>'
+                        'Tidak ada perbedaan kuantum — semua kuantum cocok!</div>',
+                        unsafe_allow_html=True)
+        else:
             st.markdown(
-                f'<div class="table-card warn">'
-                f'<div class="table-card-title warn">'
-                f'⚠️ Tabel A — {len(nopol_diff)} NOPOL ditemukan, namun KUANTUM tidak cocok'
-                f'</div></div>', unsafe_allow_html=True
+                f'<div class="alert warn"><span class="alert-icon">⚠️</span>'
+                f'<b>{len(nopol_diff)}</b> NOPOL ditemukan di File 2 namun kuantumnya tidak cocok dengan File 1. '
+                f'Cek kemungkinan salah input kuantum.</div>',
+                unsafe_allow_html=True
             )
-            sa = st.text_input('', placeholder='🔍 Filter Tabel A...', key='sa',
+            sa = st.text_input('', placeholder='🔍 Filter NOPOL...', key='sa',
                                 label_visibility='collapsed')
             da = nopol_diff.copy()
             if sa.strip():
@@ -926,15 +974,22 @@ if st.session_state.result_df is not None:
                 st.download_button('📥 Export CSV', da.to_csv(index=False).encode(),
                                    'tabel_a_kuantum_beda.csv', 'text/csv', key='dla')
 
-        # Table B — nopol tidak ada
-        if nopol_miss is not None and not nopol_miss.empty:
+    # ══════════════════════════════════════════════════════════════════════════
+    # TAB 3 — NOPOL TIDAK ADA DI FILE 2
+    # ══════════════════════════════════════════════════════════════════════════
+    with tab_b:
+        if nopol_miss is None or nopol_miss.empty:
+            st.markdown('<div class="alert success"><span class="alert-icon">🎉</span>'
+                        'Semua NOPOL ditemukan di File 2!</div>',
+                        unsafe_allow_html=True)
+        else:
             st.markdown(
-                f'<div class="table-card error">'
-                f'<div class="table-card-title error">'
-                f'❌ Tabel B — {len(nopol_miss)} NOPOL tidak ada di File 2'
-                f'</div></div>', unsafe_allow_html=True
+                f'<div class="alert error"><span class="alert-icon">❌</span>'
+                f'<b>{len(nopol_miss)}</b> NOPOL dari File 1 tidak ada sama sekali di File 2. '
+                f'Kemungkinan data belum diinput atau NOPOL salah tulis.</div>',
+                unsafe_allow_html=True
             )
-            sb = st.text_input('', placeholder='🔍 Filter Tabel B...', key='sb',
+            sb = st.text_input('', placeholder='🔍 Filter NOPOL...', key='sb',
                                 label_visibility='collapsed')
             db = nopol_miss.copy()
             if sb.strip():
@@ -945,12 +1000,24 @@ if st.session_state.result_df is not None:
                 st.download_button('📥 Export CSV', db.to_csv(index=False).encode(),
                                    'tabel_b_nopol_tidak_ada.csv', 'text/csv', key='dlb')
 
-        # Table C — all unmatched combined
-        with st.expander('📋 Tabel C — Semua tidak match (gabungan)'):
+    # ══════════════════════════════════════════════════════════════════════════
+    # TAB 4 — SEMUA TIDAK MATCH (GABUNGAN)
+    # ══════════════════════════════════════════════════════════════════════════
+    with tab_all:
+        if missing.empty:
+            st.markdown('<div class="alert success"><span class="alert-icon">🎉</span>'
+                        '<b>Semua data berhasil dicocokkan!</b> Tidak ada yang tidak match.</div>',
+                        unsafe_allow_html=True)
+        else:
+            st.markdown(
+                f'<div class="alert error"><span class="alert-icon">❌</span>'
+                f'<b>{len(missing)}</b> kombinasi NOPOL + KUANTUM dari File 1 tidak berhasil dicocokkan.</div>',
+                unsafe_allow_html=True
+            )
             all_m = missing.rename(columns={'nopol': 'NOPOL',
                                             'kuantum': 'Kuantum (File 1)'}).copy()
             all_m['Kuantum (File 1)'] = all_m['Kuantum (File 1)'].astype(int)
-            sc = st.text_input('', placeholder='🔍 Filter...', key='sc',
+            sc = st.text_input('', placeholder='🔍 Filter NOPOL...', key='sc',
                                 label_visibility='collapsed')
             if sc.strip():
                 all_m = all_m[all_m['NOPOL'].str.contains(
