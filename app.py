@@ -28,13 +28,14 @@ html, body, [class*="css"] { font-family: 'Inter', sans-serif; background: #f5f7
 .upload-card h3 { font-size: 0.78rem; font-weight: 700; color: #3b82f6;
     text-transform: uppercase; letter-spacing: 1px; margin-bottom: 4px; }
 .upload-card p { font-size: 0.78rem; color: #64748b; }
-.stat-grid { display: grid; grid-template-columns: repeat(4,1fr); gap: 12px; margin: 16px 0; }
+.stat-grid { display: grid; grid-template-columns: repeat(5,1fr); gap: 12px; margin: 16px 0; }
 .stat-card { background: #fff; border: 1px solid #e2e8f0; border-radius: 12px;
     padding: 18px 20px; text-align: center; box-shadow: 0 1px 4px rgba(0,0,0,0.06); }
 .stat-num { font-family: 'JetBrains Mono', monospace; font-size: 2rem; font-weight: 700; line-height: 1; }
 .stat-lbl { font-size: 0.7rem; color: #94a3b8; margin-top: 6px; text-transform: uppercase;
     letter-spacing: .6px; font-weight: 500; }
-.c-blue{color:#3b82f6;} .c-green{color:#22c55e;} .c-red{color:#ef4444;} .c-yellow{color:#f59e0b;} .c-orange{color:#f97316;}
+.c-blue{color:#3b82f6;} .c-green{color:#22c55e;} .c-red{color:#ef4444;}
+.c-yellow{color:#f59e0b;} .c-orange{color:#f97316;} .c-purple{color:#a855f7;}
 .warn-box    { background:#fffbeb; border:1px solid #fcd34d; border-radius:10px;
     padding:14px 18px; margin:12px 0; font-size:0.85rem; color:#92400e; line-height:1.6; }
 .info-box    { background:#eff6ff; border:1px solid #bfdbfe; border-radius:10px;
@@ -43,6 +44,8 @@ html, body, [class*="css"] { font-family: 'Inter', sans-serif; background: #f5f7
     padding:14px 18px; margin:12px 0; font-size:0.85rem; color:#14532d; line-height:1.6; }
 .error-box   { background:#fef2f2; border:1px solid #fca5a5; border-radius:10px;
     padding:14px 18px; margin:12px 0; font-size:0.85rem; color:#7f1d1d; line-height:1.6; }
+.dup-box     { background:#fdf4ff; border:1px solid #e9d5ff; border-radius:10px;
+    padding:14px 18px; margin:12px 0; font-size:0.85rem; color:#581c87; line-height:1.6; }
 .section-label { font-size:0.7rem; font-weight:700; text-transform:uppercase;
     letter-spacing:1.5px; color:#94a3b8; margin:24px 0 12px;
     display:flex; align-items:center; gap:10px; }
@@ -343,6 +346,33 @@ def load_file2(raw_df):
     return out[valid].reset_index(drop=True)
 
 # ══════════════════════════════════════════════════════════════════════════════
+# DETEKSI DUPLIKAT FILE 1
+# ══════════════════════════════════════════════════════════════════════════════
+
+def detect_duplicates_f1(df1):
+    """
+    Kembalikan DataFrame hanya baris yang merupakan duplikat NOPOL+KUANTUM,
+    dengan kolom tambahan: jumlah_duplikat, baris_ke (1-based), status_pilih.
+    """
+    key = ['nopol', 'kuantum']
+    counts = df1.groupby(key).size().reset_index(name='jumlah_duplikat')
+    dup_keys = counts[counts['jumlah_duplikat'] > 1][key]
+
+    if dup_keys.empty:
+        return pd.DataFrame()
+
+    merged = df1.merge(dup_keys, on=key, how='inner')
+    merged = merged.merge(counts, on=key, how='left')
+
+    # Tambah nomor urut per grup duplikat
+    merged['baris_ke'] = merged.groupby(key).cumcount() + 1
+
+    # Default: baris pertama dipilih, sisanya tidak
+    merged['_include'] = merged['baris_ke'] == 1
+
+    return merged.reset_index(drop=True)
+
+# ══════════════════════════════════════════════════════════════════════════════
 # THREAD-SAFE WORKERS
 # ══════════════════════════════════════════════════════════════════════════════
 
@@ -403,11 +433,14 @@ def run_bulk_download(disp):
 # SESSION STATE INIT
 # ══════════════════════════════════════════════════════════════════════════════
 for _k in ['result_df','missing_df','nopol_diff_df','nopol_miss_df',
-           'active_preview','df2_debug','df1_debug','dl_cache']:
+           'active_preview','df2_debug','df1_debug','dl_cache',
+           'dup_df','dup_selections']:
     if _k not in st.session_state:
         st.session_state[_k] = None
 if st.session_state.dl_cache is None:
     st.session_state.dl_cache = {}
+if st.session_state.dup_selections is None:
+    st.session_state.dup_selections = {}   # key: (nopol, kuantum, baris_ke) → bool
 
 # ══════════════════════════════════════════════════════════════════════════════
 # HEADER
@@ -457,17 +490,41 @@ if process:
             if df1.empty or df2.empty:
                 st.stop()
 
+            # ── DETEKSI DUPLIKAT FILE 1 ────────────────────────────────────
+            dup_df = detect_duplicates_f1(df1)
+            st.session_state.dup_df = dup_df
+            # Reset pilihan duplikat ke default (baris pertama saja)
+            new_sel = {}
+            if not dup_df.empty:
+                for _, r in dup_df.iterrows():
+                    k = (r['nopol'], r['kuantum'], int(r['baris_ke']))
+                    new_sel[k] = bool(r['_include'])
+            st.session_state.dup_selections = new_sel
+
+            # ── MATCHING (File 2 multi-link → ambil link pertama) ──────────
+            # Deduplikasi File 2: per NOPOL+KUANTUM ambil link pertama
+            df2_dedup = (
+                df2[df2['surat_jalan'].str.startswith('http', na=False)]
+                .groupby(['nopol', 'kuantum'], as_index=False)
+                .first()
+            )
+
+            # Deduplikasi File 1 sementara (untuk matching awal)
+            # Duplikat di File 1 tetap diproses semua (user nanti pilih di tab duplikat)
             result_rows = []
             for idx, row1 in df1.iterrows():
-                m = df2[(df2['nopol'] == row1['nopol']) & (df2['kuantum'] == row1['kuantum'])]
-                hm = m[m['surat_jalan'].str.startswith('http')]
-                if len(hm) > 0:
-                    for _, r2 in hm.iterrows():
-                        result_rows.append({'nopol': row1['nopol'], 'kuantum': row1['kuantum'],
-                                            'surat_jalan': r2['surat_jalan'], '_f1_idx': idx})
+                m  = df2_dedup[(df2_dedup['nopol'] == row1['nopol']) &
+                               (df2_dedup['kuantum'] == row1['kuantum'])]
+                if len(m) > 0:
+                    result_rows.append({
+                        'nopol': row1['nopol'], 'kuantum': row1['kuantum'],
+                        'surat_jalan': m.iloc[0]['surat_jalan'], '_f1_idx': idx
+                    })
                 else:
-                    result_rows.append({'nopol': row1['nopol'], 'kuantum': row1['kuantum'],
-                                        'surat_jalan': None, '_f1_idx': idx})
+                    result_rows.append({
+                        'nopol': row1['nopol'], 'kuantum': row1['kuantum'],
+                        'surat_jalan': None, '_f1_idx': idx
+                    })
 
             result = pd.DataFrame(result_rows)
             found  = result[result['surat_jalan'].notna() &
@@ -501,7 +558,11 @@ if process:
             st.session_state.active_preview = None
             st.session_state.dl_cache       = {}
 
-        st.success(f'✅ Selesai! {len(found)} surat jalan ditemukan dari {len(df1)} data File 1.')
+        n_dup_groups = len(dup_df[['nopol','kuantum']].drop_duplicates()) if not dup_df.empty else 0
+        msg = f'✅ Selesai! {len(found)} surat jalan ditemukan dari {len(df1)} data File 1.'
+        if n_dup_groups > 0:
+            msg += f'  ⚠️ **{n_dup_groups} kombinasi duplikat** terdeteksi di File 1 — cek tab Duplikat!'
+        st.success(msg)
 
 # ══════════════════════════════════════════════════════════════════════════════
 # RESULTS
@@ -513,18 +574,23 @@ if st.session_state.result_df is not None:
     nopol_miss = st.session_state.nopol_miss_df
     df2_all    = st.session_state.df2_debug
     df1_all    = st.session_state.df1_debug
+    dup_df     = st.session_state.dup_df if st.session_state.dup_df is not None else pd.DataFrame()
 
     # ── SUMMARY ────────────────────────────────────────────────────────────────
     st.markdown('<div class="section-label">Ringkasan Hasil</div>', unsafe_allow_html=True)
-    n_match     = len(found)
-    n_diff_k    = len(nopol_diff) if nopol_diff is not None else 0
-    n_miss_nopol= len(nopol_miss) if nopol_miss is not None else 0
-    n_all_miss  = len(missing)
+    n_match      = len(found)
+    n_diff_k     = len(nopol_diff) if nopol_diff is not None else 0
+    n_miss_nopol = len(nopol_miss) if nopol_miss is not None else 0
+    n_all_miss   = len(missing)
+    n_dup_groups = len(dup_df[['nopol','kuantum']].drop_duplicates()) if not dup_df.empty else 0
+    n_dup_rows   = len(dup_df) if not dup_df.empty else 0
 
     st.markdown(f"""
     <div class="stat-grid">
       <div class="stat-card"><div class="stat-num c-green">{n_match}</div>
         <div class="stat-lbl">✅ Match (NOPOL + Kuantum)</div></div>
+      <div class="stat-card"><div class="stat-num c-purple">{n_dup_groups}</div>
+        <div class="stat-lbl">🔁 Kombinasi Duplikat File 1</div></div>
       <div class="stat-card"><div class="stat-num c-yellow">{n_diff_k}</div>
         <div class="stat-lbl">⚠️ NOPOL Ada, Kuantum Beda</div></div>
       <div class="stat-card"><div class="stat-num c-red">{n_miss_nopol}</div>
@@ -534,30 +600,179 @@ if st.session_state.result_df is not None:
     </div>
     """, unsafe_allow_html=True)
 
+    # Banner peringatan duplikat global
+    if n_dup_groups > 0:
+        st.markdown(
+            f'<div class="dup-box">🔁 <b>Perhatian: {n_dup_groups} kombinasi NOPOL+Kuantum duplikat '
+            f'({n_dup_rows} baris total) ditemukan di File 1.</b> '
+            f'Secara default hanya baris <b>pertama</b> yang akan diproses. '
+            f'Kunjungi tab <b>🔁 Duplikat File 1</b> untuk memilih baris mana yang ingin diikutkan.</div>',
+            unsafe_allow_html=True
+        )
+
     st.markdown("""
     <div class="info-box">
     ℹ️ <b>Match ketat:</b> NOPOL <em>dan</em> KUANTUM harus sama persis.
     Normalisasi otomatis spasi &amp; huruf besar/kecil.<br>
-    🔧 <b>Download fix:</b> Auto-bypass Google Drive confirmation page.
-    Tersedia <b>📦 ZIP</b> (file terpisah) dan <b>📄 Gabung 1 PDF</b>.
+    🔧 <b>Multi-link di File 2:</b> Jika satu NOPOL+Kuantum punya beberapa link, link <b>pertama</b> yang dipakai.<br>
+    📦 Tersedia <b>ZIP</b> (file terpisah) dan <b>Gabung 1 PDF</b>.
     </div>
     """, unsafe_allow_html=True)
 
     # ══════════════════════════════════════════════════════════════════════════
     # TABS
     # ══════════════════════════════════════════════════════════════════════════
-    tab1, tab2, tab3, tab4 = st.tabs([
+    tab1, tab_dup, tab2, tab3, tab4 = st.tabs([
         f"✅ Match Semua ({n_match})",
+        f"🔁 Duplikat File 1 ({n_dup_groups} kombinasi)",
         f"⚠️ Tidak Match Kuantum ({n_diff_k})",
         f"❌ Tidak Match NOPOL ({n_miss_nopol})",
         f"🔴 Semua Tidak Match ({n_all_miss})",
     ])
 
     # ────────────────────────────────────────────────────────────────────────
+    # TAB DUPLIKAT — PILIH BARIS MANA YANG DIIKUTKAN
+    # ────────────────────────────────────────────────────────────────────────
+    with tab_dup:
+        if dup_df.empty:
+            st.markdown('<div class="success-box">🎉 <b>Tidak ada duplikat di File 1!</b> '
+                        'Semua kombinasi NOPOL + Kuantum unik.</div>', unsafe_allow_html=True)
+        else:
+            st.markdown(
+                f'<div class="dup-box">🔁 <b>{n_dup_groups} kombinasi NOPOL+Kuantum muncul lebih dari sekali</b> '
+                f'di File 1 ({n_dup_rows} baris total).<br>'
+                f'Centang baris yang ingin <b>diikutkan</b> saat download. '
+                f'Default: hanya baris <b>pertama</b> yang dipilih.<br>'
+                f'Jika tidak ada yang dicentang untuk satu kombinasi, kombinasi itu akan <b>dilewati</b>.</div>',
+                unsafe_allow_html=True
+            )
+
+            # Tombol pilih semua / reset
+            _da, _db, _dc, _ = st.columns([2, 2, 2, 4])
+            with _da:
+                if st.button('☑️ Pilih Semua', key='dup_all'):
+                    for k in st.session_state.dup_selections:
+                        st.session_state.dup_selections[k] = True
+                    st.rerun()
+            with _db:
+                if st.button('🔲 Batalkan Semua', key='dup_none'):
+                    for k in st.session_state.dup_selections:
+                        st.session_state.dup_selections[k] = False
+                    st.rerun()
+            with _dc:
+                if st.button('🔄 Reset ke Default', key='dup_reset'):
+                    for k in st.session_state.dup_selections:
+                        _, _, baris_ke = k
+                        st.session_state.dup_selections[k] = (baris_ke == 1)
+                    st.rerun()
+
+            # Tampilkan per grup kombinasi
+            groups = dup_df.groupby(['nopol', 'kuantum'])
+            for (nopol, kuantum), grp in groups:
+                st.markdown(
+                    f'<div style="background:#fdf4ff;border:1px solid #e9d5ff;border-radius:8px;'
+                    f'padding:10px 16px;margin:8px 0;">'
+                    f'<b style="color:#7c3aed">🚛 {nopol}</b>'
+                    f'<span style="color:#94a3b8;margin:0 8px">|</span>'
+                    f'<b style="color:#1e40af">Kuantum: {int(kuantum):,}</b>'
+                    f'<span style="color:#94a3b8;margin:0 8px">|</span>'
+                    f'<span style="color:#dc2626;font-size:0.8rem">Muncul {len(grp)}x di File 1</span>'
+                    f'</div>',
+                    unsafe_allow_html=True
+                )
+
+                for _, row in grp.iterrows():
+                    baris_ke = int(row['baris_ke'])
+                    sel_key  = (nopol, kuantum, baris_ke)
+
+                    # Cek apakah ada surat jalan yang cocok
+                    match_sj = found[
+                        (found['nopol'] == nopol) & (found['kuantum'] == kuantum)
+                    ]
+                    has_link = len(match_sj) > 0
+                    link_info = f"🔗 Ada link surat jalan" if has_link else "⚠️ Tidak ada link surat jalan"
+
+                    current_val = st.session_state.dup_selections.get(sel_key, baris_ke == 1)
+                    new_val = st.checkbox(
+                        f"Baris ke-{baris_ke}  ·  {link_info}",
+                        value=current_val,
+                        key=f'dup_cb_{nopol}_{kuantum}_{baris_ke}'
+                    )
+                    if new_val != current_val:
+                        st.session_state.dup_selections[sel_key] = new_val
+
+            # Export daftar duplikat
+            st.markdown('<div class="section-label">Export Daftar Duplikat</div>',
+                        unsafe_allow_html=True)
+            export_dup = dup_df[['nopol', 'kuantum', 'baris_ke', 'jumlah_duplikat']].copy()
+            export_dup.columns = ['NOPOL', 'Kuantum', 'Baris ke-', 'Total Duplikat']
+            # Tandai yang sedang dipilih
+            export_dup['Dipilih'] = export_dup.apply(
+                lambda r: '✅ Ya' if st.session_state.dup_selections.get(
+                    (r['NOPOL'], r['Kuantum'], int(r['Baris ke-'])), False
+                ) else '❌ Tidak', axis=1
+            )
+            _de, _ = st.columns([2, 8])
+            with _de:
+                st.download_button(
+                    '📥 Export CSV Duplikat',
+                    export_dup.to_csv(index=False).encode('utf-8'),
+                    'duplikat_file1.csv', 'text/csv', key='dl_dup'
+                )
+            st.dataframe(export_dup, use_container_width=True, hide_index=True)
+
+    # ────────────────────────────────────────────────────────────────────────
+    # Fungsi helper: filter found berdasarkan pilihan duplikat
+    # ────────────────────────────────────────────────────────────────────────
+    def get_filtered_found():
+        """
+        Dari `found`, hapus baris yang merupakan duplikat File 1 dan tidak dipilih user.
+        Logika:
+        - Jika NOPOL+Kuantum tidak ada di dup_df → ikut semua
+        - Jika ada di dup_df → ikut sesuai pilihan (dup_selections)
+        """
+        if dup_df.empty:
+            return found.copy()
+
+        # Buat mapping: (nopol, kuantum) → list baris_ke yang dipilih
+        chosen = {}
+        for (nopol, kuantum, baris_ke), sel in st.session_state.dup_selections.items():
+            if sel:
+                chosen.setdefault((nopol, kuantum), []).append(baris_ke)
+
+        dup_combos = set(zip(dup_df['nopol'], dup_df['kuantum']))
+
+        result_rows = []
+        # Counter per (nopol, kuantum) untuk menentukan baris_ke saat iterasi found
+        combo_counter = {}
+        for _, row in found.iterrows():
+            combo = (row['nopol'], row['kuantum'])
+            if combo not in dup_combos:
+                result_rows.append(row)
+            else:
+                combo_counter[combo] = combo_counter.get(combo, 0) + 1
+                baris_ke = combo_counter[combo]
+                if baris_ke in chosen.get(combo, []):
+                    result_rows.append(row)
+
+        return pd.DataFrame(result_rows).reset_index(drop=True) if result_rows else pd.DataFrame(columns=found.columns)
+
+    # ────────────────────────────────────────────────────────────────────────
     # TAB 1 — MATCH (NOPOL + KUANTUM)
     # ────────────────────────────────────────────────────────────────────────
     with tab1:
-        if len(found) == 0:
+        # Terapkan filter duplikat
+        found_filtered = get_filtered_found()
+        n_excluded = len(found) - len(found_filtered)
+
+        if n_excluded > 0:
+            st.markdown(
+                f'<div class="dup-box">🔁 <b>{n_excluded} baris duplikat dikecualikan</b> sesuai pilihan di tab '
+                f'"🔁 Duplikat File 1". Menampilkan <b>{len(found_filtered)}</b> dari {len(found)} total match.</div>',
+                unsafe_allow_html=True
+            )
+
+        if len(found_filtered) == 0:
             st.markdown("""
             <div class="warn-box">
             ⚠️ <strong>0 surat jalan ditemukan.</strong>
@@ -567,13 +782,13 @@ if st.session_state.result_df is not None:
         else:
             search = st.text_input('cari', placeholder='🔍  Ketik NOPOL untuk filter...',
                                    label_visibility='collapsed', key='search_found')
-            disp = found.copy()
+            disp = found_filtered.copy()
             if search.strip():
                 disp = disp[disp['nopol'].str.contains(
                     re.escape(norm_nopol(search.strip())), na=False, case=False)
                 ].reset_index(drop=True)
 
-            st.markdown(f'Menampilkan **{len(disp)}** dari **{len(found)}** surat jalan.')
+            st.markdown(f'Menampilkan **{len(disp)}** dari **{len(found_filtered)}** surat jalan.')
 
             # ── TOMBOL BULK ──────────────────────────────────────────────────
             bc1, bc2, bc3, _ = st.columns([2, 2, 2, 4])
@@ -683,10 +898,15 @@ if st.session_state.result_df is not None:
                 kuantum = int(row['kuantum'])
                 link    = row['surat_jalan']
                 fid     = extract_fid(link)
+                # Tandai jika baris ini dari kombinasi duplikat
+                is_dup = not dup_df.empty and (
+                    ((dup_df['nopol'] == nopol) & (dup_df['kuantum'] == kuantum)).any()
+                )
+                dup_badge = ' 🔁' if is_dup else ''
                 cols    = st.columns([0.5, 2.5, 1.5, 2, 1.2, 1.8])
 
                 cols[0].markdown(f'`#{i+1}`')
-                cols[1].markdown(f'`{nopol}`')
+                cols[1].markdown(f'`{nopol}`{dup_badge}')
                 cols[2].markdown(f'**{kuantum:,}**')
                 if fid:
                     cols[3].markdown(f'[🔗 Buka](https://drive.google.com/file/d/{fid}/view)')
@@ -740,7 +960,7 @@ if st.session_state.result_df is not None:
                         st.error('Link preview tidak valid.')
 
     # ────────────────────────────────────────────────────────────────────────
-    # TAB 2 — TIDAK MATCH KUANTUM (NOPOL ADA, KUANTUM BEDA)
+    # TAB 2 — TIDAK MATCH KUANTUM
     # ────────────────────────────────────────────────────────────────────────
     with tab2:
         if nopol_diff is None or nopol_diff.empty:
@@ -767,7 +987,7 @@ if st.session_state.result_df is not None:
                                    'tidak_match_kuantum.csv', 'text/csv', key='dl_a')
 
     # ────────────────────────────────────────────────────────────────────────
-    # TAB 3 — TIDAK MATCH NOPOL (NOPOL TIDAK ADA DI FILE 2)
+    # TAB 3 — TIDAK MATCH NOPOL
     # ────────────────────────────────────────────────────────────────────────
     with tab3:
         if nopol_miss is None or nopol_miss.empty:
@@ -793,7 +1013,7 @@ if st.session_state.result_df is not None:
                                    'tidak_match_nopol.csv', 'text/csv', key='dl_b')
 
     # ────────────────────────────────────────────────────────────────────────
-    # TAB 4 — SEMUA TIDAK MATCH (GABUNGAN TAB 2 + TAB 3)
+    # TAB 4 — SEMUA TIDAK MATCH
     # ────────────────────────────────────────────────────────────────────────
     with tab4:
         if missing.empty:
@@ -809,10 +1029,8 @@ if st.session_state.result_df is not None:
             all_m = missing.rename(columns={'nopol': 'NOPOL', 'kuantum': 'Kuantum File 1'}).copy()
             all_m['Kuantum File 1'] = all_m['Kuantum File 1'].astype(int)
 
-            # Tambah kolom Keterangan
             def get_keterangan(row):
                 nopol = row['NOPOL']
-                k_f1  = row['Kuantum File 1']
                 f2m   = df2_all[df2_all['nopol'] == nopol]
                 if len(f2m) > 0:
                     ks = sorted(f2m['kuantum'].dropna().astype(int).unique().tolist())
