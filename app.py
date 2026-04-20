@@ -6,6 +6,7 @@ import io
 import re
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
+from difflib import SequenceMatcher
 
 st.set_page_config(page_title="Tantri Imoet", page_icon="🚛", layout="wide")
 
@@ -46,6 +47,8 @@ html, body, [class*="css"] { font-family: 'Inter', sans-serif; background: #f5f7
     padding:14px 18px; margin:12px 0; font-size:0.85rem; color:#7f1d1d; line-height:1.6; }
 .dup-box     { background:#fdf4ff; border:1px solid #e9d5ff; border-radius:10px;
     padding:14px 18px; margin:12px 0; font-size:0.85rem; color:#581c87; line-height:1.6; }
+.suggestion-box { background:#f0f9ff; border:1px solid #7dd3fc; border-radius:10px;
+    padding:14px 18px; margin:8px 0; font-size:0.85rem; color:#0c4a6e; line-height:1.6; }
 .section-label { font-size:0.7rem; font-weight:700; text-transform:uppercase;
     letter-spacing:1.5px; color:#94a3b8; margin:24px 0 12px;
     display:flex; align-items:center; gap:10px; }
@@ -225,7 +228,7 @@ def infer_extension(content, fallback='pdf'):
 
 def make_safe_filename(nopol, kuantum, idx, ext, total=999):
     safe = re.sub(r'[\\/:*?"<>|]', '_', str(nopol))
-    pad  = len(str(total))          # misal 50 file → 2 digit, 200 file → 3 digit
+    pad  = len(str(total))
     no   = str(idx + 1).zfill(pad)
     return f'{no}_{safe}_{kuantum}.{ext}'
 
@@ -348,15 +351,81 @@ def load_file2(raw_df):
     return out[valid].reset_index(drop=True)
 
 # ══════════════════════════════════════════════════════════════════════════════
+# FUZZY NOPOL SUGGESTION (KUANTUM COCOK, NOPOL MIRIP)
+# ══════════════════════════════════════════════════════════════════════════════
+
+def nopol_similarity(a, b):
+    """Hitung kemiripan dua NOPOL (0.0 – 1.0) dengan SequenceMatcher."""
+    return SequenceMatcher(None, a, b).ratio()
+
+def find_nopol_suggestions(nopol_f1, kuantum, df2, top_n=5, min_similarity=0.5):
+    """
+    Cari baris di df2 yang:
+    1. KUANTUM cocok persis
+    2. NOPOL mirip dengan nopol_f1 (similarity >= min_similarity)
+    Kembalikan list dict terurut dari similarity tertinggi.
+    """
+    same_kuantum = df2[df2['kuantum'] == kuantum].copy()
+    if same_kuantum.empty:
+        return []
+
+    results = []
+    for _, row in same_kuantum.iterrows():
+        sim = nopol_similarity(nopol_f1, row['nopol'])
+        if sim >= min_similarity:
+            results.append({
+                'nopol_f2':    row['nopol'],
+                'kuantum':     int(row['kuantum']),
+                'surat_jalan': row['surat_jalan'],
+                'similarity':  round(sim * 100, 1),
+            })
+
+    results.sort(key=lambda x: x['similarity'], reverse=True)
+    return results[:top_n]
+
+def build_missing_with_suggestions(missing_df, df1, df2):
+    """
+    Untuk setiap baris di missing_df, cari:
+    - Apakah NOPOL ada di File 2 dengan kuantum beda → kategori 'kuantum_beda'
+    - Apakah NOPOL tidak ada sama sekali di File 2 → cari saran NOPOL mirip dengan
+      kuantum cocok → kategori 'nopol_mirip' atau 'tidak_ada'
+    """
+    rows = []
+    for _, row in missing_df.iterrows():
+        nopol   = row['nopol']
+        kuantum = int(row['kuantum'])
+
+        f2_nopol_match = df2[df2['nopol'] == nopol]
+        if len(f2_nopol_match) > 0:
+            # NOPOL ada tapi kuantum beda
+            ks  = sorted(f2_nopol_match['kuantum'].dropna().astype(int).unique().tolist())
+            d   = ', '.join(map(str, ks[:8])) + (f' (+{len(ks)-8})' if len(ks) > 8 else '')
+            rows.append({
+                'nopol':    nopol,
+                'kuantum':  kuantum,
+                'kategori': 'kuantum_beda',
+                'info':     d,
+                'saran':    [],
+            })
+        else:
+            # NOPOL tidak ada → cari saran mirip dengan kuantum cocok
+            saran = find_nopol_suggestions(nopol, kuantum, df2)
+            kategori = 'nopol_mirip' if saran else 'tidak_ada'
+            rows.append({
+                'nopol':    nopol,
+                'kuantum':  kuantum,
+                'kategori': kategori,
+                'info':     '',
+                'saran':    saran,
+            })
+    return rows
+
+# ══════════════════════════════════════════════════════════════════════════════
 # DETEKSI DUPLIKAT FILE 1
 # ══════════════════════════════════════════════════════════════════════════════
 
 def detect_duplicates_f1(df1):
-    """
-    Kembalikan DataFrame hanya baris yang merupakan duplikat NOPOL+KUANTUM,
-    dengan kolom tambahan: jumlah_duplikat, baris_ke (1-based), status_pilih.
-    """
-    key = ['nopol', 'kuantum']
+    key    = ['nopol', 'kuantum']
     counts = df1.groupby(key).size().reset_index(name='jumlah_duplikat')
     dup_keys = counts[counts['jumlah_duplikat'] > 1][key]
 
@@ -365,13 +434,8 @@ def detect_duplicates_f1(df1):
 
     merged = df1.merge(dup_keys, on=key, how='inner')
     merged = merged.merge(counts, on=key, how='left')
-
-    # Tambah nomor urut per grup duplikat
     merged['baris_ke'] = merged.groupby(key).cumcount() + 1
-
-    # Default: baris pertama dipilih, sisanya tidak
     merged['_include'] = merged['baris_ke'] == 1
-
     return merged.reset_index(drop=True)
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -399,13 +463,13 @@ def run_bulk_download(disp):
         for i, row in disp.iterrows()
     ]
 
-    prog       = st.progress(0)
-    stxt       = st.empty()
-    ok_files   = {}
-    new_cache  = {}
-    fail_list  = []
-    done_n     = 0
-    total      = len(tasks)
+    prog      = st.progress(0)
+    stxt      = st.empty()
+    ok_files  = {}
+    new_cache = {}
+    fail_list = []
+    done_n    = 0
+    total     = len(tasks)
     stxt.text(f'Mengunduh 0 / {total} file...')
 
     with ThreadPoolExecutor(max_workers=8) as ex:
@@ -416,7 +480,7 @@ def run_bulk_download(disp):
             if ct:
                 new_cache[res['link']] = ct
                 ext  = infer_extension(ct)
-                fn = make_safe_filename(res['nopol'], res['kuantum'], res['idx'], ext, total=total)
+                fn   = make_safe_filename(res['nopol'], res['kuantum'], res['idx'], ext, total=total)
                 base, c = fn, 1
                 while fn in ok_files:
                     fn = base.rsplit('.', 1)[0] + f'_{c}.' + base.rsplit('.', 1)[-1]
@@ -436,13 +500,16 @@ def run_bulk_download(disp):
 # ══════════════════════════════════════════════════════════════════════════════
 for _k in ['result_df','missing_df','nopol_diff_df','nopol_miss_df',
            'active_preview','df2_debug','df1_debug','dl_cache',
-           'dup_df','dup_selections']:
+           'dup_df','dup_selections','missing_detail',
+           'saran_preview']:   # saran_preview: key = unique str → i baris aktif preview saran
     if _k not in st.session_state:
         st.session_state[_k] = None
 if st.session_state.dl_cache is None:
     st.session_state.dl_cache = {}
 if st.session_state.dup_selections is None:
-    st.session_state.dup_selections = {}   # key: (nopol, kuantum, baris_ke) → bool
+    st.session_state.dup_selections = {}
+if st.session_state.saran_preview is None:
+    st.session_state.saran_preview = {}
 
 # ══════════════════════════════════════════════════════════════════════════════
 # HEADER
@@ -495,7 +562,6 @@ if process:
             # ── DETEKSI DUPLIKAT FILE 1 ────────────────────────────────────
             dup_df = detect_duplicates_f1(df1)
             st.session_state.dup_df = dup_df
-            # Reset pilihan duplikat ke default (baris pertama saja)
             new_sel = {}
             if not dup_df.empty:
                 for _, r in dup_df.iterrows():
@@ -503,20 +569,17 @@ if process:
                     new_sel[k] = bool(r['_include'])
             st.session_state.dup_selections = new_sel
 
-            # ── MATCHING (File 2 multi-link → ambil link pertama) ──────────
-            # Deduplikasi File 2: per NOPOL+KUANTUM ambil link pertama
+            # ── MATCHING ───────────────────────────────────────────────────
             df2_dedup = (
                 df2[df2['surat_jalan'].str.startswith('http', na=False)]
                 .groupby(['nopol', 'kuantum'], as_index=False)
                 .first()
             )
 
-            # Deduplikasi File 1 sementara (untuk matching awal)
-            # Duplikat di File 1 tetap diproses semua (user nanti pilih di tab duplikat)
             result_rows = []
             for idx, row1 in df1.iterrows():
-                m  = df2_dedup[(df2_dedup['nopol'] == row1['nopol']) &
-                               (df2_dedup['kuantum'] == row1['kuantum'])]
+                m = df2_dedup[(df2_dedup['nopol'] == row1['nopol']) &
+                              (df2_dedup['kuantum'] == row1['kuantum'])]
                 if len(m) > 0:
                     result_rows.append({
                         'nopol': row1['nopol'], 'kuantum': row1['kuantum'],
@@ -539,17 +602,29 @@ if process:
                  for i, r in df1.iterrows() if i not in matched]
             ).drop_duplicates(subset=['nopol','kuantum']).reset_index(drop=True)
 
+            # ── MISSING DETAIL (termasuk saran NOPOL mirip) ────────────────
+            missing_detail = build_missing_with_suggestions(missing, df1, df2)
+            st.session_state.missing_detail = missing_detail
+
             diff_rows, miss_rows = [], []
-            for _, row in missing.iterrows():
-                f2m = df2[df2['nopol'] == row['nopol']]
-                if len(f2m) > 0:
-                    ks = sorted(f2m['kuantum'].dropna().astype(int).unique().tolist())
-                    d  = ', '.join(map(str, ks[:8])) + (f' (+{len(ks)-8})' if len(ks) > 8 else '')
-                    diff_rows.append({'NOPOL': row['nopol'], 'Kuantum File 1': int(row['kuantum']),
-                                      'Kuantum di File 2': d, 'Status': '⚠️ Kuantum tidak cocok'})
+            for item in missing_detail:
+                if item['kategori'] == 'kuantum_beda':
+                    diff_rows.append({
+                        'NOPOL': item['nopol'],
+                        'Kuantum File 1': item['kuantum'],
+                        'Kuantum di File 2': item['info'],
+                        'Status': '⚠️ Kuantum tidak cocok'
+                    })
                 else:
-                    miss_rows.append({'NOPOL': row['nopol'], 'Kuantum File 1': int(row['kuantum']),
-                                      'Status': '❌ NOPOL tidak ada di File 2'})
+                    miss_rows.append({
+                        'NOPOL': item['nopol'],
+                        'Kuantum File 1': item['kuantum'],
+                        'Status': '❌ NOPOL tidak ada di File 2',
+                        'Saran NOPOL (Kuantum Cocok)': (
+                            ', '.join([f"{s['nopol_f2']} ({s['similarity']}%)" for s in item['saran']])
+                            if item['saran'] else '-'
+                        )
+                    })
 
             st.session_state.result_df      = found
             st.session_state.missing_df     = missing
@@ -559,6 +634,7 @@ if process:
             st.session_state.df1_debug      = df1
             st.session_state.active_preview = None
             st.session_state.dl_cache       = {}
+            st.session_state.saran_preview  = {}
 
         n_dup_groups = len(dup_df[['nopol','kuantum']].drop_duplicates()) if not dup_df.empty else 0
         msg = f'✅ Selesai! {len(found)} surat jalan ditemukan dari {len(df1)} data File 1.'
@@ -570,22 +646,24 @@ if process:
 # RESULTS
 # ══════════════════════════════════════════════════════════════════════════════
 if st.session_state.result_df is not None:
-    found      = st.session_state.result_df
-    missing    = st.session_state.missing_df
-    nopol_diff = st.session_state.nopol_diff_df
-    nopol_miss = st.session_state.nopol_miss_df
-    df2_all    = st.session_state.df2_debug
-    df1_all    = st.session_state.df1_debug
-    dup_df     = st.session_state.dup_df if st.session_state.dup_df is not None else pd.DataFrame()
+    found          = st.session_state.result_df
+    missing        = st.session_state.missing_df
+    nopol_diff     = st.session_state.nopol_diff_df
+    nopol_miss     = st.session_state.nopol_miss_df
+    df2_all        = st.session_state.df2_debug
+    df1_all        = st.session_state.df1_debug
+    dup_df         = st.session_state.dup_df if st.session_state.dup_df is not None else pd.DataFrame()
+    missing_detail = st.session_state.missing_detail or []
 
     # ── SUMMARY ────────────────────────────────────────────────────────────────
     st.markdown('<div class="section-label">Ringkasan Hasil</div>', unsafe_allow_html=True)
-    n_match      = len(found)
-    n_diff_k     = len(nopol_diff) if nopol_diff is not None else 0
-    n_miss_nopol = len(nopol_miss) if nopol_miss is not None else 0
-    n_all_miss   = len(missing)
-    n_dup_groups = len(dup_df[['nopol','kuantum']].drop_duplicates()) if not dup_df.empty else 0
-    n_dup_rows   = len(dup_df) if not dup_df.empty else 0
+    n_match       = len(found)
+    n_diff_k      = len(nopol_diff) if nopol_diff is not None else 0
+    n_miss_nopol  = len(nopol_miss) if nopol_miss is not None else 0
+    n_all_miss    = len(missing)
+    n_dup_groups  = len(dup_df[['nopol','kuantum']].drop_duplicates()) if not dup_df.empty else 0
+    n_dup_rows    = len(dup_df) if not dup_df.empty else 0
+    n_nopol_mirip = sum(1 for x in missing_detail if x['kategori'] == 'nopol_mirip')
 
     st.markdown(f"""
     <div class="stat-grid">
@@ -602,7 +680,6 @@ if st.session_state.result_df is not None:
     </div>
     """, unsafe_allow_html=True)
 
-    # Banner peringatan duplikat global
     if n_dup_groups > 0:
         st.markdown(
             f'<div class="dup-box">🔁 <b>Perhatian: {n_dup_groups} kombinasi NOPOL+Kuantum duplikat '
@@ -612,11 +689,21 @@ if st.session_state.result_df is not None:
             unsafe_allow_html=True
         )
 
+    if n_nopol_mirip > 0:
+        st.markdown(
+            f'<div class="suggestion-box">🔍 <b>{n_nopol_mirip} data memiliki saran NOPOL mirip</b> '
+            f'dengan kuantum yang cocok di File 2. '
+            f'Cek tab <b>❌ Tidak Match NOPOL</b> untuk melihat saran dan preview surat jalannya.</div>',
+            unsafe_allow_html=True
+        )
+
     st.markdown("""
     <div class="info-box">
     ℹ️ <b>Match ketat:</b> NOPOL <em>dan</em> KUANTUM harus sama persis.
     Normalisasi otomatis spasi &amp; huruf besar/kecil.<br>
     🔧 <b>Multi-link di File 2:</b> Jika satu NOPOL+Kuantum punya beberapa link, link <b>pertama</b> yang dipakai.<br>
+    🔍 <b>Saran NOPOL:</b> Jika NOPOL tidak ditemukan namun KUANTUM cocok, sistem akan mencari NOPOL
+    yang mirip (kemungkinan salah ketik 1–2 huruf).<br>
     📦 Tersedia <b>ZIP</b> (file terpisah) dan <b>Gabung 1 PDF</b>.
     </div>
     """, unsafe_allow_html=True)
@@ -633,7 +720,7 @@ if st.session_state.result_df is not None:
     ])
 
     # ────────────────────────────────────────────────────────────────────────
-    # TAB DUPLIKAT — PILIH BARIS MANA YANG DIIKUTKAN
+    # TAB DUPLIKAT
     # ────────────────────────────────────────────────────────────────────────
     with tab_dup:
         if dup_df.empty:
@@ -649,7 +736,6 @@ if st.session_state.result_df is not None:
                 unsafe_allow_html=True
             )
 
-            # Tombol pilih semua / reset
             _da, _db, _dc, _ = st.columns([2, 2, 2, 4])
             with _da:
                 if st.button('☑️ Pilih Semua', key='dup_all'):
@@ -668,7 +754,6 @@ if st.session_state.result_df is not None:
                         st.session_state.dup_selections[k] = (baris_ke == 1)
                     st.rerun()
 
-            # Tampilkan per grup kombinasi
             groups = dup_df.groupby(['nopol', 'kuantum'])
             for (nopol, kuantum), grp in groups:
                 st.markdown(
@@ -687,12 +772,11 @@ if st.session_state.result_df is not None:
                     baris_ke = int(row['baris_ke'])
                     sel_key  = (nopol, kuantum, baris_ke)
 
-                    # Cek apakah ada surat jalan yang cocok
                     match_sj = found[
                         (found['nopol'] == nopol) & (found['kuantum'] == kuantum)
                     ]
-                    has_link = len(match_sj) > 0
-                    link_info = f"🔗 Ada link surat jalan" if has_link else "⚠️ Tidak ada link surat jalan"
+                    has_link  = len(match_sj) > 0
+                    link_info = "🔗 Ada link surat jalan" if has_link else "⚠️ Tidak ada link surat jalan"
 
                     current_val = st.session_state.dup_selections.get(sel_key, baris_ke == 1)
                     new_val = st.checkbox(
@@ -703,12 +787,10 @@ if st.session_state.result_df is not None:
                     if new_val != current_val:
                         st.session_state.dup_selections[sel_key] = new_val
 
-            # Export daftar duplikat
             st.markdown('<div class="section-label">Export Daftar Duplikat</div>',
                         unsafe_allow_html=True)
             export_dup = dup_df[['nopol', 'kuantum', 'baris_ke', 'jumlah_duplikat']].copy()
             export_dup.columns = ['NOPOL', 'Kuantum', 'Baris ke-', 'Total Duplikat']
-            # Tandai yang sedang dipilih
             export_dup['Dipilih'] = export_dup.apply(
                 lambda r: '✅ Ya' if st.session_state.dup_selections.get(
                     (r['NOPOL'], r['Kuantum'], int(r['Baris ke-'])), False
@@ -724,28 +806,19 @@ if st.session_state.result_df is not None:
             st.dataframe(export_dup, use_container_width=True, hide_index=True)
 
     # ────────────────────────────────────────────────────────────────────────
-    # Fungsi helper: filter found berdasarkan pilihan duplikat
+    # Helper: filter found berdasarkan pilihan duplikat
     # ────────────────────────────────────────────────────────────────────────
     def get_filtered_found():
-        """
-        Dari `found`, hapus baris yang merupakan duplikat File 1 dan tidak dipilih user.
-        Logika:
-        - Jika NOPOL+Kuantum tidak ada di dup_df → ikut semua
-        - Jika ada di dup_df → ikut sesuai pilihan (dup_selections)
-        """
         if dup_df.empty:
             return found.copy()
 
-        # Buat mapping: (nopol, kuantum) → list baris_ke yang dipilih
         chosen = {}
         for (nopol, kuantum, baris_ke), sel in st.session_state.dup_selections.items():
             if sel:
                 chosen.setdefault((nopol, kuantum), []).append(baris_ke)
 
-        dup_combos = set(zip(dup_df['nopol'], dup_df['kuantum']))
-
-        result_rows = []
-        # Counter per (nopol, kuantum) untuk menentukan baris_ke saat iterasi found
+        dup_combos    = set(zip(dup_df['nopol'], dup_df['kuantum']))
+        result_rows   = []
         combo_counter = {}
         for _, row in found.iterrows():
             combo = (row['nopol'], row['kuantum'])
@@ -760,12 +833,11 @@ if st.session_state.result_df is not None:
         return pd.DataFrame(result_rows).reset_index(drop=True) if result_rows else pd.DataFrame(columns=found.columns)
 
     # ────────────────────────────────────────────────────────────────────────
-    # TAB 1 — MATCH (NOPOL + KUANTUM)
+    # TAB 1 — MATCH
     # ────────────────────────────────────────────────────────────────────────
     with tab1:
-        # Terapkan filter duplikat
         found_filtered = get_filtered_found()
-        n_excluded = len(found) - len(found_filtered)
+        n_excluded     = len(found) - len(found_filtered)
 
         if n_excluded > 0:
             st.markdown(
@@ -792,7 +864,6 @@ if st.session_state.result_df is not None:
 
             st.markdown(f'Menampilkan **{len(disp)}** dari **{len(found_filtered)}** surat jalan.')
 
-            # ── TOMBOL BULK ──────────────────────────────────────────────────
             bc1, bc2, bc3, _ = st.columns([2, 2, 2, 4])
             with bc1:
                 do_zip    = st.button('📦 Download ZIP',    use_container_width=True,
@@ -805,7 +876,6 @@ if st.session_state.result_df is not None:
                                        help='Download semua ke memori agar tombol per baris instan',
                                        key='btn_preload')
 
-            # ── PRE-LOAD ─────────────────────────────────────────────────────
             if do_preload and len(disp) > 0:
                 links_needed = [row['surat_jalan'] for _, row in disp.iterrows()
                                 if row['surat_jalan'] not in st.session_state.dl_cache]
@@ -836,7 +906,6 @@ if st.session_state.result_df is not None:
                     st.session_state.dl_cache.update(new_cache)
                     stxt.text(f'Pre-load selesai: ✅ {ok_n} | ❌ {fail_n}')
 
-            # ── DOWNLOAD ZIP ─────────────────────────────────────────────────
             if do_zip and len(disp) > 0:
                 ok_files, fail_list, new_cache = run_bulk_download(disp)
                 st.session_state.dl_cache.update(new_cache)
@@ -853,7 +922,6 @@ if st.session_state.result_df is not None:
                         for f in fail_list:
                             st.write(f'• {f}')
 
-            # ── GABUNG 1 PDF ─────────────────────────────────────────────────
             if do_merge and len(disp) > 0:
                 ok_files, fail_list, new_cache = run_bulk_download(disp)
                 st.session_state.dl_cache.update(new_cache)
@@ -887,7 +955,6 @@ if st.session_state.result_df is not None:
                         for f in fail_list:
                             st.write(f'• {f}')
 
-            # ── TABEL DETAIL PER BARIS ────────────────────────────────────────
             st.markdown('<div class="section-label">Detail per Surat Jalan</div>',
                         unsafe_allow_html=True)
             hcols = st.columns([0.5, 2.5, 1.5, 2, 1.2, 1.8])
@@ -900,12 +967,11 @@ if st.session_state.result_df is not None:
                 kuantum = int(row['kuantum'])
                 link    = row['surat_jalan']
                 fid     = extract_fid(link)
-                # Tandai jika baris ini dari kombinasi duplikat
-                is_dup = not dup_df.empty and (
+                is_dup  = not dup_df.empty and (
                     ((dup_df['nopol'] == nopol) & (dup_df['kuantum'] == kuantum)).any()
                 )
                 dup_badge = ' 🔁' if is_dup else ''
-                cols    = st.columns([0.5, 2.5, 1.5, 2, 1.2, 1.8])
+                cols      = st.columns([0.5, 2.5, 1.5, 2, 1.2, 1.8])
 
                 cols[0].markdown(f'`#{i+1}`')
                 cols[1].markdown(f'`{nopol}`{dup_badge}')
@@ -989,30 +1055,189 @@ if st.session_state.result_df is not None:
                                    'tidak_match_kuantum.csv', 'text/csv', key='dl_a')
 
     # ────────────────────────────────────────────────────────────────────────
-    # TAB 3 — TIDAK MATCH NOPOL
+    # TAB 3 — TIDAK MATCH NOPOL  ← FITUR BARU: SARAN NOPOL MIRIP
     # ────────────────────────────────────────────────────────────────────────
     with tab3:
-        if nopol_miss is None or nopol_miss.empty:
+        miss_items = [x for x in missing_detail if x['kategori'] in ('nopol_mirip', 'tidak_ada')]
+
+        if not miss_items:
             st.markdown('<div class="success-box">🎉 <b>Semua NOPOL ditemukan di File 2!</b></div>',
                         unsafe_allow_html=True)
         else:
+            n_mirip   = sum(1 for x in miss_items if x['kategori'] == 'nopol_mirip')
+            n_tdk_ada = sum(1 for x in miss_items if x['kategori'] == 'tidak_ada')
+
             st.markdown(
-                f'<div class="error-box">❌ <b>{len(nopol_miss)} data</b> — NOPOL sama sekali tidak '
-                f'ada di File 2.</div>',
+                f'<div class="error-box">❌ <b>{len(miss_items)} data</b> — NOPOL sama sekali tidak '
+                f'ada di File 2.<br>'
+                f'🔍 <b>{n_mirip} data</b> memiliki <b>saran NOPOL mirip</b> dengan kuantum cocok. '
+                f'&nbsp;|&nbsp; 🚫 <b>{n_tdk_ada} data</b> tanpa saran sama sekali.</div>',
                 unsafe_allow_html=True
             )
+
             sm = st.text_input('', placeholder='🔍 Filter berdasarkan NOPOL...',
                                label_visibility='collapsed', key='sm')
-            dm = nopol_miss.copy()
-            if sm.strip():
-                dm = dm[dm['NOPOL'].str.contains(re.escape(norm_nopol(sm)), na=False, case=False)
-                        ].reset_index(drop=True)
-            st.dataframe(dm, use_container_width=True, hide_index=True)
-            _cb, _ = st.columns([2, 8])
-            with _cb:
-                st.download_button('📥 Export CSV',
-                                   dm.to_csv(index=False).encode('utf-8'),
-                                   'tidak_match_nopol.csv', 'text/csv', key='dl_b')
+
+            # Slider threshold kemiripan
+            min_sim = st.slider(
+                '🎚️ Threshold Kemiripan NOPOL (%)',
+                min_value=30, max_value=90, value=50, step=5,
+                help='Saran hanya ditampilkan jika kemiripan NOPOL ≥ nilai ini',
+                key='sim_slider'
+            )
+
+            for item_idx, item in enumerate(miss_items):
+                nopol   = item['nopol']
+                kuantum = item['kuantum']
+
+                if sm.strip() and norm_nopol(sm.strip()) not in nopol:
+                    continue
+
+                # Filter saran sesuai threshold
+                saran_filtered = [s for s in item['saran'] if s['similarity'] >= min_sim]
+
+                # Header baris
+                badge_color = '#0c4a6e' if saran_filtered else '#7f1d1d'
+                badge_bg    = '#e0f2fe' if saran_filtered else '#fee2e2'
+                badge_text  = f'🔍 {len(saran_filtered)} saran' if saran_filtered else '🚫 Tidak ada saran'
+
+                st.markdown(
+                    f'<div style="background:#fff;border:1px solid #e2e8f0;border-radius:10px;'
+                    f'padding:14px 18px;margin:10px 0;">'
+                    f'<div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap;">'
+                    f'<span style="font-family:monospace;font-weight:700;color:#1e40af;'
+                    f'font-size:1rem">🚛 {nopol}</span>'
+                    f'<span style="color:#64748b;font-size:0.85rem">Kuantum: <b>{kuantum:,}</b></span>'
+                    f'<span style="background:{badge_bg};color:{badge_color};border-radius:6px;'
+                    f'padding:2px 10px;font-size:0.78rem;font-weight:600">{badge_text}</span>'
+                    f'</div></div>',
+                    unsafe_allow_html=True
+                )
+
+                if saran_filtered:
+                    # Header kolom saran
+                    sh0, sh1, sh2, sh3, sh4 = st.columns([0.4, 2.5, 1.5, 1.5, 2])
+                    sh0.markdown('<small><b>#</b></small>', unsafe_allow_html=True)
+                    sh1.markdown('<small><b>NOPOL di File 2</b></small>', unsafe_allow_html=True)
+                    sh2.markdown('<small><b>Kemiripan</b></small>', unsafe_allow_html=True)
+                    sh3.markdown('<small><b>Kuantum</b></small>', unsafe_allow_html=True)
+                    sh4.markdown('<small><b>Aksi</b></small>', unsafe_allow_html=True)
+
+                    for s_idx, saran in enumerate(saran_filtered):
+                        saran_key = f'saran_{item_idx}_{s_idx}'
+                        sc0, sc1, sc2, sc3, sc4 = st.columns([0.4, 2.5, 1.5, 1.5, 2])
+
+                        # Warna kemiripan
+                        sim = saran['similarity']
+                        if sim >= 80:
+                            sim_color = '#16a34a'
+                        elif sim >= 65:
+                            sim_color = '#b45309'
+                        else:
+                            sim_color = '#dc2626'
+
+                        sc0.markdown(f'`{s_idx+1}`')
+                        sc1.markdown(f'`{saran["nopol_f2"]}`')
+                        sc2.markdown(
+                            f'<span style="color:{sim_color};font-weight:700">{sim}%</span>',
+                            unsafe_allow_html=True
+                        )
+                        sc3.markdown(f'{saran["kuantum"]:,}')
+
+                        with sc4:
+                            col_prev, col_dl = st.columns(2)
+                            with col_prev:
+                                prev_key_active = st.session_state.saran_preview.get(f'item_{item_idx}')
+                                is_active_prev  = (prev_key_active == s_idx)
+                                btn_label       = '👁️ Tutup' if is_active_prev else '👁️ Lihat'
+                                if st.button(btn_label, key=f'sprev_{saran_key}'):
+                                    if is_active_prev:
+                                        st.session_state.saran_preview[f'item_{item_idx}'] = None
+                                    else:
+                                        st.session_state.saran_preview[f'item_{item_idx}'] = s_idx
+                                    st.rerun()
+
+                            with col_dl:
+                                link_saran = saran['surat_jalan']
+                                cached_s   = st.session_state.dl_cache.get(link_saran)
+                                if cached_s:
+                                    ext_s   = infer_extension(cached_s)
+                                    fname_s = make_safe_filename(saran['nopol_f2'], saran['kuantum'],
+                                                                 s_idx, ext_s)
+                                    mime_s  = 'application/pdf' if ext_s == 'pdf' else f'image/{ext_s}'
+                                    st.download_button(
+                                        f'⬇️ .{ext_s.upper()}', cached_s,
+                                        fname_s, mime_s,
+                                        key=f'sdl_cached_{saran_key}'
+                                    )
+                                else:
+                                    if st.button('⬇️ Download', key=f'sdl_{saran_key}'):
+                                        with st.spinner(f'Mengunduh {saran["nopol_f2"]}...'):
+                                            ct_s = download_file(link_saran)
+                                        if ct_s:
+                                            st.session_state.dl_cache[link_saran] = ct_s
+                                            ext_s   = infer_extension(ct_s)
+                                            fname_s = make_safe_filename(
+                                                saran['nopol_f2'], saran['kuantum'], s_idx, ext_s)
+                                            mime_s  = 'application/pdf' if ext_s == 'pdf' else f'image/{ext_s}'
+                                            st.download_button(
+                                                f'💾 Simpan .{ext_s.upper()}', ct_s,
+                                                fname_s, mime_s,
+                                                key=f'sdl_save_{saran_key}'
+                                            )
+                                            st.success(f'✅ {fname_s} siap disimpan!')
+                                        else:
+                                            st.error('❌ Gagal mengunduh. Cek link GDrive.')
+
+                        # Preview surat jalan saran
+                        active_s_idx = st.session_state.saran_preview.get(f'item_{item_idx}')
+                        if active_s_idx == s_idx:
+                            purl_s = to_preview(saran['surat_jalan'])
+                            if purl_s:
+                                import streamlit.components.v1 as components
+                                st.markdown(
+                                    f'<div class="suggestion-box">👁️ <b>Preview Surat Jalan</b> — '
+                                    f'NOPOL: <code>{saran["nopol_f2"]}</code> | '
+                                    f'Kuantum: <b>{saran["kuantum"]:,}</b> | '
+                                    f'Kemiripan dengan <code>{nopol}</code>: '
+                                    f'<b style="color:{sim_color}">{sim}%</b></div>',
+                                    unsafe_allow_html=True
+                                )
+                                components.html(
+                                    f'<iframe src="{purl_s}" width="100%" height="680" '
+                                    f'style="border:1px solid #7dd3fc;border-radius:10px;'
+                                    f'background:#fff" allow="autoplay"></iframe>',
+                                    height=700
+                                )
+                                st.caption(f'Preview kosong? → [buka di tab baru]({purl_s})')
+                            else:
+                                st.error('Link preview tidak valid.')
+
+                else:
+                    if item['kategori'] == 'tidak_ada':
+                        st.markdown(
+                            '<div style="padding:8px 18px;color:#94a3b8;font-size:0.82rem">'
+                            '🚫 Tidak ada NOPOL di File 2 yang memiliki kuantum sama dan kemiripan '
+                            'cukup. Kemungkinan data benar-benar tidak ada di database.</div>',
+                            unsafe_allow_html=True
+                        )
+                    else:
+                        st.markdown(
+                            f'<div style="padding:8px 18px;color:#94a3b8;font-size:0.82rem">'
+                            f'🔽 Kurangi threshold kemiripan (saat ini {min_sim}%) untuk melihat '
+                            f'lebih banyak saran.</div>',
+                            unsafe_allow_html=True
+                        )
+
+            # Export
+            st.markdown('<div class="section-label">Export Tabel</div>', unsafe_allow_html=True)
+            if nopol_miss is not None and not nopol_miss.empty:
+                _cb, _ = st.columns([2, 8])
+                with _cb:
+                    st.download_button('📥 Export CSV',
+                                       nopol_miss.to_csv(index=False).encode('utf-8'),
+                                       'tidak_match_nopol.csv', 'text/csv', key='dl_b')
+                st.dataframe(nopol_miss, use_container_width=True, hide_index=True)
 
     # ────────────────────────────────────────────────────────────────────────
     # TAB 4 — SEMUA TIDAK MATCH
@@ -1024,7 +1249,7 @@ if st.session_state.result_df is not None:
                         unsafe_allow_html=True)
         else:
             st.markdown(
-                f'<div class="error-box">🔴 <b>{len(missing)} total kombinasi tidak match</b> '
+                f'<div class="error-box">🔴 <b>{n_all_miss} total kombinasi tidak match</b> '
                 f'(gabungan dari kuantum beda + NOPOL tidak ada).</div>',
                 unsafe_allow_html=True
             )
@@ -1038,7 +1263,13 @@ if st.session_state.result_df is not None:
                     ks = sorted(f2m['kuantum'].dropna().astype(int).unique().tolist())
                     d  = ', '.join(map(str, ks[:5])) + (f' (+{len(ks)-5} lagi)' if len(ks) > 5 else '')
                     return f'⚠️ Kuantum beda (di File 2: {d})'
+                # Cek apakah ada saran nopol mirip
+                saran = find_nopol_suggestions(nopol, int(row['Kuantum File 1']), df2_all, top_n=3)
+                if saran:
+                    top = saran[0]
+                    return f'🔍 NOPOL tidak ada — Saran mirip: {top["nopol_f2"]} ({top["similarity"]}%)'
                 return '❌ NOPOL tidak ada di File 2'
+
             all_m['Keterangan'] = all_m.apply(get_keterangan, axis=1)
 
             sa = st.text_input('', placeholder='🔍 Filter...',
@@ -1055,6 +1286,7 @@ if st.session_state.result_df is not None:
                     st.markdown(f"""
                     - ⚠️ **Kuantum beda:** {n_diff_k} data
                     - ❌ **NOPOL tidak ada:** {n_miss_nopol} data
+                    - 🔍 **Ada saran NOPOL mirip:** {n_nopol_mirip} data
                     - 🔴 **Total tidak match:** {n_all_miss} data
                     """)
             with col_dl:
