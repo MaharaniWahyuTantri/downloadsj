@@ -223,9 +223,11 @@ def infer_extension(content, fallback='pdf'):
     return {'pdf': 'pdf', 'jpg': 'jpg', 'png': 'png'}.get(
         detect_file_type(content) if content else 'x', fallback)
 
-def make_safe_filename(nopol, kuantum, idx, ext):
+def make_safe_filename(nopol, kuantum, idx, ext, total=999):
     safe = re.sub(r'[\\/:*?"<>|]', '_', str(nopol))
-    return f'{safe}_{kuantum}_{idx+1}.{ext}'
+    pad  = len(str(total))          # misal 50 file → 2 digit, 200 file → 3 digit
+    no   = str(idx + 1).zfill(pad)
+    return f'{no}_{safe}_{kuantum}.{ext}'
 
 def make_zip(files):
     buf = io.BytesIO()
@@ -414,7 +416,7 @@ def run_bulk_download(disp):
             if ct:
                 new_cache[res['link']] = ct
                 ext  = infer_extension(ct)
-                fn   = make_safe_filename(res['nopol'], res['kuantum'], res['idx'], ext)
+                fn = make_safe_filename(res['nopol'], res['kuantum'], res['idx'], ext, total=total)
                 base, c = fn, 1
                 while fn in ok_files:
                     fn = base.rsplit('.', 1)[0] + f'_{c}.' + base.rsplit('.', 1)[-1]
