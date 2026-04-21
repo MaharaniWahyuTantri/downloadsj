@@ -1515,7 +1515,7 @@ if st.session_state.result_df is not None:
                     uid = f'dup_{re.sub(r"[^a-zA-Z0-9]","_",nopol)}_{kuantum}_{baris_ke}'
 
                     cols = st.columns([0.6, 1.8, 2, 1.8, 0.8, 1.8])
-                    cols[0].markdown(f'<b>ke-{baris_ke}</b>')
+                    cols[0].markdown(f'**ke-{baris_ke}**')
                     cols[1].markdown(f'<span class="nopol-pill dup">{nopol}</span>', unsafe_allow_html=True)
                     cols[2].markdown(
                         f'<code style="background:#ede9fe;color:#7c3aed;padding:3px 10px;'
