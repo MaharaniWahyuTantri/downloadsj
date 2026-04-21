@@ -572,22 +572,37 @@ def detect_duplicates_f1(df1):
     return merged.reset_index(drop=True)
 
 def match_files(df1, df2):
+    """
+    Setiap baris df1 mendapat TEPAT SATU link dari df2.
+    Penentuan link berdasarkan posisi baris dalam grup duplikat:
+      - baris ke-0 dalam grup → link ke-0 di df2 (atau link pertama jika kurang)
+      - baris ke-1 → link ke-1, dst.
+    Dengan demikian 3 duplikat File 1 + 3 link File 2 → 3 baris hasil (bukan 9).
+    """
     df2_valid = df2[df2['surat_jalan'].str.startswith('http', na=False)].copy()
+
+    # Posisi setiap baris dalam grupnya (0-based)
+    pos_in_group = df1.groupby(['nopol', 'kuantum']).cumcount()
+
     result_rows = []
     for idx, row1 in df1.iterrows():
+        pos = int(pos_in_group[idx])
         matches = df2_valid[
             (df2_valid['nopol']   == row1['nopol']) &
             (df2_valid['kuantum'] == row1['kuantum'])
-        ]
+        ].reset_index(drop=True)
+
         if len(matches) > 0:
-            for link_no, (_, mrow) in enumerate(matches.iterrows(), start=1):
-                result_rows.append({
-                    'nopol':       row1['nopol'],
-                    'kuantum':     row1['kuantum'],
-                    'surat_jalan': mrow['surat_jalan'],
-                    '_f1_idx':     idx,
-                    '_link_no':    link_no,
-                })
+            # Ambil link sesuai posisi; fallback ke link pertama jika pos melebihi jumlah link
+            link_idx = min(pos, len(matches) - 1)
+            mrow     = matches.iloc[link_idx]
+            result_rows.append({
+                'nopol':       row1['nopol'],
+                'kuantum':     row1['kuantum'],
+                'surat_jalan': mrow['surat_jalan'],
+                '_f1_idx':     idx,
+                '_link_no':    pos + 1,   # 1-based, untuk label _DUPLIKAT1/2/3
+            })
         else:
             result_rows.append({
                 'nopol':       row1['nopol'],
