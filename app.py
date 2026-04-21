@@ -1308,7 +1308,7 @@ if st.session_state.result_df is not None:
 
                 dup_badge = '<span style="background:#ede9fe;color:#7c3aed;font-size:0.65rem;padding:1px 5px;border-radius:4px;margin-left:4px">DUP</span>' if is_dup else ''
                 cols[1].markdown(f'<span class="nopol-pill {"dup" if is_dup else ""}">{nopol}</span>{dup_badge}', unsafe_allow_html=True)
-                cols[2].markdown(f'<b>{kuantum:,}</b>')
+                cols[2].markdown(f'**{kuantum:,}**')
                 cols[3].markdown(f'<span style="font-size:0.78rem;color:#94a3b8">#{link_no}</span>', unsafe_allow_html=True)
 
                 if fid:
