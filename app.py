@@ -5,103 +5,284 @@ import zipfile
 import io
 import re
 import time
+import os
+import tempfile
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from difflib import SequenceMatcher
 
-st.set_page_config(page_title="Tantri Imoet", page_icon="🚛", layout="wide")
+st.set_page_config(
+    page_title="Tantri Imoet — Surat Jalan Bulk Downloader",
+    page_icon="🚛",
+    layout="wide",
+    initial_sidebar_state="expanded",
+)
 
+# ══════════════════════════════════════════════════════════════════════════════
+# GLOBAL CSS
+# ══════════════════════════════════════════════════════════════════════════════
 st.markdown("""
 <style>
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;600&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;600&display=swap');
+
 *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
-html, body, [class*="css"] { font-family: 'Inter', sans-serif; background: #f5f7fa; color: #1a202c; }
-.stApp { background: #f5f7fa; }
+html, body, [class*="css"] { font-family: 'Inter', sans-serif; background: #f0f4f8; color: #1a202c; }
+.stApp { background: #f0f4f8; }
+
+/* ── HEADER ── */
 .main-header {
-    background: linear-gradient(135deg, #1e40af, #3b82f6);
-    border-radius: 14px; padding: 24px 32px; margin-bottom: 20px;
-    display: flex; align-items: center; gap: 16px;
-    box-shadow: 0 4px 16px rgba(59,130,246,0.25);
+    background: linear-gradient(135deg, #1e3a8a 0%, #2563eb 50%, #3b82f6 100%);
+    border-radius: 16px; padding: 28px 36px; margin-bottom: 24px;
+    display: flex; align-items: center; gap: 20px;
+    box-shadow: 0 8px 32px rgba(37,99,235,0.30);
+    position: relative; overflow: hidden;
 }
-.main-header h1 { font-size: 1.7rem; font-weight: 700; color: #fff; }
-.main-header p  { font-size: 0.85rem; color: rgba(255,255,255,0.75); margin-top: 4px; }
-.upload-card { background: #fff; border: 1px solid #e2e8f0; border-radius: 10px;
-    padding: 16px 20px; margin-bottom: 8px; box-shadow: 0 1px 4px rgba(0,0,0,0.06); }
-.upload-card h3 { font-size: 0.78rem; font-weight: 700; color: #3b82f6;
-    text-transform: uppercase; letter-spacing: 1px; margin-bottom: 4px; }
-.upload-card p { font-size: 0.78rem; color: #64748b; }
-.stat-grid { display: grid; grid-template-columns: repeat(5,1fr); gap: 12px; margin: 16px 0; }
-.stat-card { background: #fff; border: 1px solid #e2e8f0; border-radius: 12px;
-    padding: 18px 20px; text-align: center; box-shadow: 0 1px 4px rgba(0,0,0,0.06); }
-.stat-num { font-family: 'JetBrains Mono', monospace; font-size: 2rem; font-weight: 700; line-height: 1; }
-.stat-lbl { font-size: 0.7rem; color: #94a3b8; margin-top: 6px; text-transform: uppercase;
-    letter-spacing: .6px; font-weight: 500; }
+.main-header::before {
+    content: ''; position: absolute; top: -40px; right: -40px;
+    width: 200px; height: 200px; border-radius: 50%;
+    background: rgba(255,255,255,0.06);
+}
+.main-header::after {
+    content: ''; position: absolute; bottom: -30px; right: 120px;
+    width: 120px; height: 120px; border-radius: 50%;
+    background: rgba(255,255,255,0.04);
+}
+.main-header .truck-icon { font-size: 3rem; filter: drop-shadow(0 2px 8px rgba(0,0,0,.2)); }
+.main-header h1 { font-size: 1.75rem; font-weight: 800; color: #fff; line-height: 1.2; }
+.main-header p  { font-size: 0.875rem; color: rgba(255,255,255,0.80); margin-top: 6px; line-height: 1.5; }
+.header-badge {
+    background: rgba(255,255,255,0.15); border: 1px solid rgba(255,255,255,0.25);
+    border-radius: 20px; padding: 4px 12px; font-size: 0.72rem; color: #fff;
+    font-weight: 600; letter-spacing: 0.5px; display: inline-block; margin-top: 8px;
+    backdrop-filter: blur(4px);
+}
+
+/* ── STEP INDICATOR ── */
+.step-bar {
+    display: flex; align-items: center; gap: 0; margin: 16px 0 24px;
+    background: #fff; border: 1px solid #e2e8f0; border-radius: 12px;
+    padding: 16px 24px; box-shadow: 0 1px 4px rgba(0,0,0,.05);
+    overflow: hidden;
+}
+.step-item {
+    display: flex; align-items: center; gap: 10px; flex: 1;
+    position: relative;
+}
+.step-item:not(:last-child)::after {
+    content: ''; position: absolute; right: 0; top: 50%;
+    transform: translateY(-50%); width: 100%; height: 2px;
+    background: #e2e8f0; z-index: 0;
+}
+.step-circle {
+    width: 32px; height: 32px; border-radius: 50%;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 0.8rem; font-weight: 700; flex-shrink: 0; position: relative; z-index: 1;
+}
+.step-circle.done   { background: #22c55e; color: #fff; }
+.step-circle.active { background: #3b82f6; color: #fff; box-shadow: 0 0 0 4px rgba(59,130,246,0.20); }
+.step-circle.idle   { background: #f1f5f9; color: #94a3b8; border: 2px solid #e2e8f0; }
+.step-label { font-size: 0.78rem; font-weight: 600; }
+.step-label.done   { color: #16a34a; }
+.step-label.active { color: #1d4ed8; }
+.step-label.idle   { color: #94a3b8; }
+.step-desc { font-size: 0.68rem; color: #94a3b8; margin-top: 1px; }
+.step-connector { flex: 1; height: 2px; background: #e2e8f0; }
+.step-connector.done { background: #22c55e; }
+
+/* ── UPLOAD CARDS ── */
+.upload-card {
+    background: #fff; border: 2px solid #e2e8f0; border-radius: 14px;
+    padding: 20px 22px; margin-bottom: 12px; transition: border-color .2s, box-shadow .2s;
+    box-shadow: 0 1px 4px rgba(0,0,0,.05);
+}
+.upload-card:hover { border-color: #93c5fd; box-shadow: 0 4px 16px rgba(59,130,246,.10); }
+.upload-card.has-file { border-color: #86efac; background: #f0fdf4; }
+.upload-card-header {
+    display: flex; align-items: center; gap: 10px; margin-bottom: 10px;
+}
+.upload-card-icon {
+    width: 36px; height: 36px; border-radius: 8px;
+    display: flex; align-items: center; justify-content: center; font-size: 1.1rem;
+}
+.upload-card-icon.blue { background: #eff6ff; }
+.upload-card-icon.green { background: #f0fdf4; }
+.upload-card-title { font-size: 0.9rem; font-weight: 700; color: #1e293b; }
+.upload-card-sub   { font-size: 0.75rem; color: #64748b; margin-top: 2px; }
+.col-badge {
+    display: inline-block; background: #f1f5f9; border: 1px solid #e2e8f0;
+    border-radius: 4px; padding: 2px 7px; font-size: 0.68rem; font-family: monospace;
+    color: #475569; margin: 2px;
+}
+.col-badge.required { background: #eff6ff; border-color: #bfdbfe; color: #1d4ed8; }
+
+/* ── STAT CARDS ── */
+.stat-grid { display: grid; grid-template-columns: repeat(5,1fr); gap: 14px; margin: 20px 0; }
+.stat-card {
+    background: #fff; border: 1px solid #e2e8f0; border-radius: 14px;
+    padding: 20px; text-align: center; box-shadow: 0 1px 4px rgba(0,0,0,.05);
+    transition: transform .15s, box-shadow .15s; cursor: default;
+}
+.stat-card:hover { transform: translateY(-2px); box-shadow: 0 6px 20px rgba(0,0,0,.08); }
+.stat-card-icon { font-size: 1.4rem; margin-bottom: 8px; }
+.stat-num {
+    font-family: 'JetBrains Mono', monospace; font-size: 2.2rem;
+    font-weight: 700; line-height: 1;
+}
+.stat-lbl { font-size: 0.68rem; color: #94a3b8; margin-top: 8px;
+    text-transform: uppercase; letter-spacing: .7px; font-weight: 600; }
+.stat-card.green { border-top: 3px solid #22c55e; }
+.stat-card.purple{ border-top: 3px solid #a855f7; }
+.stat-card.yellow{ border-top: 3px solid #f59e0b; }
+.stat-card.red   { border-top: 3px solid #ef4444; }
+.stat-card.orange{ border-top: 3px solid #f97316; }
 .c-blue{color:#3b82f6;} .c-green{color:#22c55e;} .c-red{color:#ef4444;}
 .c-yellow{color:#f59e0b;} .c-orange{color:#f97316;} .c-purple{color:#a855f7;}
-.warn-box    { background:#fffbeb; border:1px solid #fcd34d; border-radius:10px;
-    padding:14px 18px; margin:12px 0; font-size:0.85rem; color:#92400e; line-height:1.6; }
-.info-box    { background:#eff6ff; border:1px solid #bfdbfe; border-radius:10px;
-    padding:14px 18px; margin:12px 0; font-size:0.85rem; color:#1e40af; line-height:1.6; }
-.success-box { background:#f0fdf4; border:1px solid #86efac; border-radius:10px;
-    padding:14px 18px; margin:12px 0; font-size:0.85rem; color:#14532d; line-height:1.6; }
-.error-box   { background:#fef2f2; border:1px solid #fca5a5; border-radius:10px;
-    padding:14px 18px; margin:12px 0; font-size:0.85rem; color:#7f1d1d; line-height:1.6; }
-.dup-box     { background:#fdf4ff; border:1px solid #e9d5ff; border-radius:10px;
-    padding:14px 18px; margin:12px 0; font-size:0.85rem; color:#581c87; line-height:1.6; }
-.suggestion-box { background:#f0f9ff; border:1px solid #7dd3fc; border-radius:10px;
-    padding:14px 18px; margin:8px 0; font-size:0.85rem; color:#0c4a6e; line-height:1.6; }
-.section-label { font-size:0.7rem; font-weight:700; text-transform:uppercase;
-    letter-spacing:1.5px; color:#94a3b8; margin:24px 0 12px;
-    display:flex; align-items:center; gap:10px; }
-.section-label::after { content:''; flex:1; height:1px; background:#e2e8f0; }
-.table-card        { background:#fff; border:1px solid #e2e8f0; border-radius:12px;
-    padding:20px; box-shadow:0 1px 6px rgba(0,0,0,0.06); margin:12px 0; }
-.table-card-red    { background:#fff; border:1px solid #fca5a5; border-radius:12px;
-    padding:20px; box-shadow:0 1px 6px rgba(239,68,68,0.08); margin:12px 0; }
-.table-card-yellow { background:#fff; border:1px solid #fcd34d; border-radius:12px;
-    padding:20px; box-shadow:0 1px 6px rgba(245,158,11,0.08); margin:12px 0; }
-.table-title { font-size:0.92rem; font-weight:700; margin-bottom:14px; }
-.table-title-red    { color:#dc2626; }
-.table-title-yellow { color:#b45309; }
-.stButton > button { background:#fff !important; color:#374151 !important;
-    border:1px solid #d1d5db !important; border-radius:8px !important;
-    font-size:0.82rem !important; font-weight:500 !important; padding:6px 14px !important;
-    transition:all .15s !important; box-shadow:0 1px 3px rgba(0,0,0,0.06) !important; }
-.stButton > button:hover { background:#eff6ff !important; border-color:#3b82f6 !important;
-    color:#1d4ed8 !important; }
-div[data-testid="stFileUploader"] { background:#fff; border:2px dashed #cbd5e1; border-radius:10px; }
-.stProgress > div > div { background:#3b82f6 !important; }
 
-/* Tab styling */
+/* ── ALERT BOXES ── */
+.alert {
+    border-radius: 12px; padding: 14px 18px; margin: 12px 0;
+    font-size: 0.855rem; line-height: 1.65; display: flex; gap: 10px;
+    align-items: flex-start;
+}
+.alert-icon { font-size: 1.1rem; flex-shrink: 0; margin-top: 1px; }
+.alert.warn    { background:#fffbeb; border:1px solid #fcd34d; color:#78350f; }
+.alert.info    { background:#eff6ff; border:1px solid #bfdbfe; color:#1e3a8a; }
+.alert.success { background:#f0fdf4; border:1px solid #86efac; color:#14532d; }
+.alert.error   { background:#fef2f2; border:1px solid #fca5a5; color:#7f1d1d; }
+.alert.purple  { background:#fdf4ff; border:1px solid #e9d5ff; color:#581c87; }
+.alert.sky     { background:#f0f9ff; border:1px solid #7dd3fc; color:#0c4a6e; }
+
+/* ── SECTION LABEL ── */
+.section-label {
+    font-size: 0.68rem; font-weight: 700; text-transform: uppercase;
+    letter-spacing: 1.5px; color: #94a3b8; margin: 28px 0 14px;
+    display: flex; align-items: center; gap: 10px;
+}
+.section-label::after { content:''; flex:1; height:1px; background:#e2e8f0; }
+
+/* ── TABLE HEADER ── */
+.tbl-header {
+    background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px 8px 0 0;
+    padding: 10px 12px; font-size: 0.72rem; font-weight: 700;
+    text-transform: uppercase; letter-spacing: .8px; color: #64748b;
+}
+.tbl-row {
+    background: #fff; border: 1px solid #e2e8f0; border-top: none;
+    padding: 10px 12px; transition: background .1s;
+}
+.tbl-row:hover { background: #f8fafc; }
+.tbl-row:last-child { border-radius: 0 0 8px 8px; }
+
+/* ── NOPOL PILL ── */
+.nopol-pill {
+    display: inline-block; background: #eff6ff; color: #1d4ed8;
+    border: 1px solid #bfdbfe; border-radius: 6px;
+    padding: 3px 10px; font-family: monospace; font-size: 0.82rem; font-weight: 600;
+}
+.nopol-pill.dup { background: #fdf4ff; color: #7c3aed; border-color: #d8b4fe; }
+
+/* ── BUTTONS ── */
+.stButton > button {
+    background: #fff !important; color: #374151 !important;
+    border: 1px solid #d1d5db !important; border-radius: 8px !important;
+    font-size: 0.82rem !important; font-weight: 500 !important;
+    padding: 7px 16px !important; transition: all .15s !important;
+    box-shadow: 0 1px 3px rgba(0,0,0,.06) !important;
+}
+.stButton > button:hover {
+    background: #eff6ff !important; border-color: #3b82f6 !important;
+    color: #1d4ed8 !important; box-shadow: 0 2px 8px rgba(59,130,246,.12) !important;
+}
+
+/* ── FILE UPLOADER ── */
+div[data-testid="stFileUploader"] {
+    background: #fff; border: 2px dashed #cbd5e1; border-radius: 10px;
+}
+div[data-testid="stFileUploader"]:hover { border-color: #93c5fd; }
+
+/* ── PROGRESS ── */
+.stProgress > div > div { background: linear-gradient(90deg,#3b82f6,#6366f1) !important; border-radius: 8px !important; }
+
+/* ── TABS ── */
 .stTabs [data-baseweb="tab-list"] {
-    gap: 4px;
-    background: #fff;
-    border: 1px solid #e2e8f0;
-    border-radius: 10px;
-    padding: 6px;
-    margin-bottom: 16px;
-    box-shadow: 0 1px 4px rgba(0,0,0,0.06);
+    gap: 4px; background: #fff; border: 1px solid #e2e8f0;
+    border-radius: 12px; padding: 6px; margin-bottom: 18px;
+    box-shadow: 0 1px 4px rgba(0,0,0,.05);
 }
 .stTabs [data-baseweb="tab"] {
-    border-radius: 8px !important;
-    font-size: 0.82rem !important;
-    font-weight: 500 !important;
-    padding: 8px 16px !important;
-    color: #64748b !important;
-    border: none !important;
-    background: transparent !important;
+    border-radius: 8px !important; font-size: 0.82rem !important;
+    font-weight: 500 !important; padding: 8px 14px !important;
+    color: #64748b !important; border: none !important; background: transparent !important;
 }
 .stTabs [aria-selected="true"] {
-    background: #eff6ff !important;
-    color: #1d4ed8 !important;
-    font-weight: 600 !important;
+    background: #eff6ff !important; color: #1d4ed8 !important; font-weight: 700 !important;
 }
-.stTabs [data-baseweb="tab-highlight"] { display: none !important; }
-.stTabs [data-baseweb="tab-border"]    { display: none !important; }
+.stTabs [data-baseweb="tab-highlight"],
+.stTabs [data-baseweb="tab-border"] { display: none !important; }
+
+/* ── ACTION BUTTON ROW ── */
+.action-bar {
+    background: #fff; border: 1px solid #e2e8f0; border-radius: 12px;
+    padding: 14px 18px; margin: 14px 0; display: flex; gap: 10px;
+    align-items: center; flex-wrap: wrap;
+    box-shadow: 0 1px 4px rgba(0,0,0,.04);
+}
+
+/* ── DUP GROUP BANNER ── */
+.dup-group-banner {
+    background: linear-gradient(135deg,#fdf4ff,#f5f3ff);
+    border: 1px solid #d8b4fe; border-radius: 10px;
+    padding: 12px 18px; margin: 14px 0 6px;
+    display: flex; align-items: center; gap: 12px; flex-wrap: wrap;
+}
+
+/* ── SIDEBAR HELP ── */
+.help-card {
+    background: #fff; border: 1px solid #e2e8f0; border-radius: 10px;
+    padding: 14px 16px; margin-bottom: 10px; font-size: 0.8rem;
+}
+.help-card h4 { font-size: 0.8rem; font-weight: 700; color: #1e293b; margin-bottom: 8px; }
+.help-card p, .help-card li { color: #475569; line-height: 1.6; }
+.help-card ul { padding-left: 16px; }
+
+/* ── EMPTY STATE ── */
+.empty-state {
+    text-align: center; padding: 48px 24px; color: #94a3b8;
+}
+.empty-state .icon { font-size: 3rem; margin-bottom: 12px; }
+.empty-state h3 { font-size: 1rem; font-weight: 600; color: #64748b; margin-bottom: 8px; }
+.empty-state p  { font-size: 0.82rem; line-height: 1.6; max-width: 320px; margin: 0 auto; }
+
+/* ── SEARCH BOX ── */
+.stTextInput > div > div > input {
+    border-radius: 8px !important; border: 1px solid #e2e8f0 !important;
+    font-size: 0.85rem !important; padding: 10px 14px !important;
+    background: #fff !important;
+}
+.stTextInput > div > div > input:focus { border-color: #93c5fd !important; box-shadow: 0 0 0 3px rgba(147,197,253,.25) !important; }
+
+/* ── SIMILARITY BADGE ── */
+.sim-badge {
+    display: inline-block; border-radius: 6px;
+    padding: 3px 10px; font-size: 0.75rem; font-weight: 700;
+}
+.sim-high   { background: #dcfce7; color: #16a34a; }
+.sim-medium { background: #fef9c3; color: #854d0e; }
+.sim-low    { background: #fee2e2; color: #b91c1c; }
+
+/* ── SCROLLABLE TABLE WRAPPER ── */
+.table-scroll { max-height: 600px; overflow-y: auto; }
+
+/* ── DIVIDER ── */
+.styled-divider { border: none; border-top: 1px solid #e2e8f0; margin: 8px 0; }
+
+/* hide streamlit branding */
+#MainMenu { visibility: hidden; }
+footer    { visibility: hidden; }
 </style>
 """, unsafe_allow_html=True)
 
 # ══════════════════════════════════════════════════════════════════════════════
-# UTILITIES
+# UTILITIES (unchanged logic, same as before)
 # ══════════════════════════════════════════════════════════════════════════════
 
 def norm_nopol(v):
@@ -145,12 +326,9 @@ def detect_file_type(content):
     if not content or len(content) < 4:
         return 'unknown'
     sig = content[:8]
-    if sig[:4] == b'%PDF':
-        return 'pdf'
-    if sig[:3] == b'\xff\xd8\xff':
-        return 'jpg'
-    if sig[:8] == b'\x89PNG\r\n\x1a\n':
-        return 'png'
+    if sig[:4] == b'%PDF':              return 'pdf'
+    if sig[:3] == b'\xff\xd8\xff':      return 'jpg'
+    if sig[:8] == b'\x89PNG\r\n\x1a\n': return 'png'
     try:
         snippet = content[:2000].decode('utf-8', errors='ignore').lower()
         if '<html' in snippet or '<!doctype' in snippet:
@@ -166,15 +344,10 @@ def download_gdrive(fid, retries=4, timeout=45):
     if not fid:
         return None
     session = requests.Session()
-    session.headers.update({
-        'User-Agent': (
-            'Mozilla/5.0 (Windows NT 10.0; Win64; x64) '
-            'AppleWebKit/537.36 (KHTML, like Gecko) '
-            'Chrome/120.0.0.0 Safari/537.36'
-        )
-    })
+    session.headers.update({'User-Agent':
+        'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 '
+        '(KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'})
     base_url = f'https://drive.google.com/uc?export=download&id={fid}'
-
     for attempt in range(retries):
         try:
             r1   = session.get(base_url, timeout=timeout, stream=True, allow_redirects=True)
@@ -190,16 +363,12 @@ def download_gdrive(fid, retries=4, timeout=45):
                 raw2 = _get_bytes(r2)
                 if detect_file_type(raw2) != 'html' and len(raw2) > 512:
                     return raw2
-            r3   = session.get(f'{base_url}&confirm=t',
-                               timeout=timeout, stream=True, allow_redirects=True)
-            raw3 = _get_bytes(r3)
-            if detect_file_type(raw3) != 'html' and len(raw3) > 512:
-                return raw3
-            r4   = session.get(f'https://drive.google.com/uc?id={fid}&export=download&confirm=t',
-                               timeout=timeout, stream=True, allow_redirects=True)
-            raw4 = _get_bytes(r4)
-            if detect_file_type(raw4) != 'html' and len(raw4) > 512:
-                return raw4
+            for extra in ['&confirm=t', '']:
+                r   = session.get(f'{base_url}{extra}', timeout=timeout,
+                                  stream=True, allow_redirects=True)
+                raw = _get_bytes(r)
+                if detect_file_type(raw) != 'html' and len(raw) > 512:
+                    return raw
         except Exception:
             pass
         if attempt < retries - 1:
@@ -213,8 +382,8 @@ def download_file(link):
     if fid:
         return download_gdrive(fid)
     try:
-        r = requests.get(link.strip(), timeout=45, stream=True,
-                         headers={'User-Agent': 'Mozilla/5.0'})
+        r   = requests.get(link.strip(), timeout=45, stream=True,
+                           headers={'User-Agent': 'Mozilla/5.0'})
         raw = _get_bytes(r)
         if detect_file_type(raw) != 'html' and len(raw) > 512:
             return raw
@@ -223,14 +392,14 @@ def download_file(link):
     return None
 
 def infer_extension(content, fallback='pdf'):
-    return {'pdf': 'pdf', 'jpg': 'jpg', 'png': 'png'}.get(
+    return {'pdf':'pdf','jpg':'jpg','png':'png'}.get(
         detect_file_type(content) if content else 'x', fallback)
 
-def make_safe_filename(nopol, kuantum, idx, ext, total=999):
+def make_safe_filename(nopol, kuantum, idx, ext, total=999, dup_label=''):
     safe = re.sub(r'[\\/:*?"<>|]', '_', str(nopol))
-    pad  = len(str(total))
+    pad  = len(str(max(total, 1)))
     no   = str(idx + 1).zfill(pad)
-    return f'{no}_{safe}_{kuantum}.{ext}'
+    return f'{no}_{safe}_{kuantum}{dup_label}.{ext}'
 
 def make_zip(files):
     buf = io.BytesIO()
@@ -241,26 +410,36 @@ def make_zip(files):
     return buf.read()
 
 def img_bytes_to_pdf(img_bytes):
+    tmp_path = None
     try:
+        from reportlab.pdfgen import canvas as rl_canvas
         from reportlab.lib.pagesizes import A4
-        from reportlab.platypus import SimpleDocTemplate, Image as RLImage
         from PIL import Image as PILImage
-
         pil = PILImage.open(io.BytesIO(img_bytes))
+        if pil.mode not in ('RGB', 'L'):
+            pil = pil.convert('RGB')
         w_px, h_px = pil.size
         a4_w, a4_h = A4
-        scale = min(a4_w / w_px, a4_h / h_px)
-        rl_w, rl_h = w_px * scale, h_px * scale
-
-        buf = io.BytesIO()
-        doc = SimpleDocTemplate(buf, pagesize=(rl_w + 20, rl_h + 20),
-                                rightMargin=10, leftMargin=10,
-                                topMargin=10, bottomMargin=10)
-        doc.build([RLImage(io.BytesIO(img_bytes), width=rl_w, height=rl_h)])
-        buf.seek(0)
-        return buf.read()
+        margin = 20
+        scale  = min((a4_w - 2 * margin) / w_px, (a4_h - 2 * margin) / h_px)
+        draw_w, draw_h = w_px * scale, h_px * scale
+        x = (a4_w - draw_w) / 2
+        y = (a4_h - draw_h) / 2
+        with tempfile.NamedTemporaryFile(suffix='.png', delete=False) as tmp:
+            tmp_path = tmp.name
+            pil.save(tmp_path, format='PNG')
+        pdf_buf = io.BytesIO()
+        c = rl_canvas.Canvas(pdf_buf, pagesize=(a4_w, a4_h))
+        c.drawImage(tmp_path, x, y, width=draw_w, height=draw_h, preserveAspectRatio=True)
+        c.save()
+        pdf_buf.seek(0)
+        return pdf_buf.read()
     except Exception:
         return None
+    finally:
+        if tmp_path:
+            try: os.unlink(tmp_path)
+            except: pass
 
 def merge_pdfs(content_list):
     try:
@@ -270,27 +449,19 @@ def merge_pdfs(content_list):
             from PyPDF2 import PdfWriter, PdfReader
         except ImportError:
             return None
-
     writer = PdfWriter()
     for ct in content_list:
         if not ct:
             continue
-        ftype = detect_file_type(ct)
-        if ftype == 'pdf':
+        ftype    = detect_file_type(ct)
+        pdf_data = ct if ftype == 'pdf' else (
+            img_bytes_to_pdf(ct) if ftype in ('jpg', 'png') else None)
+        if pdf_data:
             try:
-                for page in PdfReader(io.BytesIO(ct)).pages:
+                for page in PdfReader(io.BytesIO(pdf_data)).pages:
                     writer.add_page(page)
             except Exception:
                 continue
-        elif ftype in ('jpg', 'png'):
-            converted = img_bytes_to_pdf(ct)
-            if converted:
-                try:
-                    for page in PdfReader(io.BytesIO(converted)).pages:
-                        writer.add_page(page)
-                except Exception:
-                    continue
-
     if len(writer.pages) == 0:
         return None
     out = io.BytesIO()
@@ -305,10 +476,10 @@ def load_file1(df):
     nc = find_col(df, ['nopol','nomor polisi','no pol','no.pol','nopolisi']) or find_col(df, ['pol'])
     kc = find_col(df, ['kuantum','quantum','tonase','tonage','qty','jumlah','volume','berat'])
     if not nc:
-        st.error(f"❌ Kolom NOPOL tidak ditemukan. Tersedia: {list(df.columns)}")
+        st.error(f"❌ Kolom **NOPOL** tidak ditemukan. Kolom tersedia: `{'`, `'.join(df.columns)}`")
         return pd.DataFrame()
     if not kc:
-        st.error(f"❌ Kolom KUANTUM tidak ditemukan. Tersedia: {list(df.columns)}")
+        st.error(f"❌ Kolom **KUANTUM** tidak ditemukan. Kolom tersedia: `{'`, `'.join(df.columns)}`")
         return pd.DataFrame()
     out = pd.DataFrame()
     out['nopol']   = df[nc].apply(norm_nopol)
@@ -321,20 +492,21 @@ def load_file2(raw_df):
     if df.empty:
         return pd.DataFrame()
     frow = df.iloc[0].tolist()
-    if any(str(v).upper().strip() in ['NOPOL','KUANTUM','FOTO SURAT JALAN','SURAT JALAN'] for v in frow):
+    if any(str(v).upper().strip() in ['NOPOL','KUANTUM','FOTO SURAT JALAN','SURAT JALAN']
+           for v in frow):
         df.columns = [str(c).strip() for c in df.iloc[0]]
         df = df[1:].reset_index(drop=True)
     nc = find_col(df, ['nopol','nomor polisi','no pol','no truk','no.pol','nopolisi']) or find_col(df, ['pol'])
     kc = find_col(df, ['kuantum','quantum','tonase','tonage','qty','jumlah','volume','berat'])
     lc = find_col(df, ['surat jalan','suratjalan','foto surat','foto','link','url','drive','gdrive'])
     if not nc:
-        st.error(f"❌ Kolom NOPOL tidak ditemukan di File 2. Tersedia: {list(df.columns)}")
+        st.error(f"❌ Kolom **NOPOL** tidak ditemukan di File 2. Kolom tersedia: `{'`, `'.join(df.columns)}`")
         return pd.DataFrame()
     if not kc:
-        st.error(f"❌ Kolom KUANTUM tidak ditemukan di File 2. Tersedia: {list(df.columns)}")
+        st.error(f"❌ Kolom **KUANTUM** tidak ditemukan di File 2.")
         return pd.DataFrame()
     if not lc:
-        st.error(f"❌ Kolom SURAT JALAN tidak ditemukan di File 2. Tersedia: {list(df.columns)}")
+        st.error(f"❌ Kolom **SURAT JALAN** tidak ditemukan di File 2.")
         return pd.DataFrame()
     out = pd.DataFrame()
     out['nopol']       = df[nc].apply(lambda x: norm_nopol(str(x)) if pd.notna(x) else '')
@@ -350,25 +522,13 @@ def load_file2(raw_df):
              out['surat_jalan'].str.lower().str.endswith('.png'))
     return out[valid].reset_index(drop=True)
 
-# ══════════════════════════════════════════════════════════════════════════════
-# FUZZY NOPOL SUGGESTION (KUANTUM COCOK, NOPOL MIRIP)
-# ══════════════════════════════════════════════════════════════════════════════
-
 def nopol_similarity(a, b):
-    """Hitung kemiripan dua NOPOL (0.0 – 1.0) dengan SequenceMatcher."""
     return SequenceMatcher(None, a, b).ratio()
 
 def find_nopol_suggestions(nopol_f1, kuantum, df2, top_n=5, min_similarity=0.5):
-    """
-    Cari baris di df2 yang:
-    1. KUANTUM cocok persis
-    2. NOPOL mirip dengan nopol_f1 (similarity >= min_similarity)
-    Kembalikan list dict terurut dari similarity tertinggi.
-    """
     same_kuantum = df2[df2['kuantum'] == kuantum].copy()
     if same_kuantum.empty:
         return []
-
     results = []
     for _, row in same_kuantum.iterrows():
         sim = nopol_similarity(nopol_f1, row['nopol'])
@@ -379,98 +539,93 @@ def find_nopol_suggestions(nopol_f1, kuantum, df2, top_n=5, min_similarity=0.5):
                 'surat_jalan': row['surat_jalan'],
                 'similarity':  round(sim * 100, 1),
             })
-
     results.sort(key=lambda x: x['similarity'], reverse=True)
     return results[:top_n]
 
 def build_missing_with_suggestions(missing_df, df1, df2):
-    """
-    Untuk setiap baris di missing_df, cari:
-    - Apakah NOPOL ada di File 2 dengan kuantum beda → kategori 'kuantum_beda'
-    - Apakah NOPOL tidak ada sama sekali di File 2 → cari saran NOPOL mirip dengan
-      kuantum cocok → kategori 'nopol_mirip' atau 'tidak_ada'
-    """
     rows = []
     for _, row in missing_df.iterrows():
         nopol   = row['nopol']
         kuantum = int(row['kuantum'])
-
-        f2_nopol_match = df2[df2['nopol'] == nopol]
-        if len(f2_nopol_match) > 0:
-            # NOPOL ada tapi kuantum beda
-            ks  = sorted(f2_nopol_match['kuantum'].dropna().astype(int).unique().tolist())
-            d   = ', '.join(map(str, ks[:8])) + (f' (+{len(ks)-8})' if len(ks) > 8 else '')
-            rows.append({
-                'nopol':    nopol,
-                'kuantum':  kuantum,
-                'kategori': 'kuantum_beda',
-                'info':     d,
-                'saran':    [],
-            })
+        f2_match = df2[df2['nopol'] == nopol]
+        if len(f2_match) > 0:
+            ks = sorted(f2_match['kuantum'].dropna().astype(int).unique().tolist())
+            d  = ', '.join(map(str, ks[:8])) + (f' (+{len(ks)-8})' if len(ks) > 8 else '')
+            rows.append({'nopol': nopol, 'kuantum': kuantum,
+                         'kategori': 'kuantum_beda', 'info': d, 'saran': []})
         else:
-            # NOPOL tidak ada → cari saran mirip dengan kuantum cocok
-            saran = find_nopol_suggestions(nopol, kuantum, df2)
+            saran    = find_nopol_suggestions(nopol, kuantum, df2)
             kategori = 'nopol_mirip' if saran else 'tidak_ada'
-            rows.append({
-                'nopol':    nopol,
-                'kuantum':  kuantum,
-                'kategori': kategori,
-                'info':     '',
-                'saran':    saran,
-            })
+            rows.append({'nopol': nopol, 'kuantum': kuantum,
+                         'kategori': kategori, 'info': '', 'saran': saran})
     return rows
-
-# ══════════════════════════════════════════════════════════════════════════════
-# DETEKSI DUPLIKAT FILE 1
-# ══════════════════════════════════════════════════════════════════════════════
 
 def detect_duplicates_f1(df1):
     key    = ['nopol', 'kuantum']
     counts = df1.groupby(key).size().reset_index(name='jumlah_duplikat')
     dup_keys = counts[counts['jumlah_duplikat'] > 1][key]
-
     if dup_keys.empty:
         return pd.DataFrame()
-
     merged = df1.merge(dup_keys, on=key, how='inner')
     merged = merged.merge(counts, on=key, how='left')
     merged['baris_ke'] = merged.groupby(key).cumcount() + 1
-    merged['_include'] = merged['baris_ke'] == 1
     return merged.reset_index(drop=True)
 
-# ══════════════════════════════════════════════════════════════════════════════
-# THREAD-SAFE WORKERS
-# ══════════════════════════════════════════════════════════════════════════════
+def match_files(df1, df2):
+    df2_valid = df2[df2['surat_jalan'].str.startswith('http', na=False)].copy()
+    result_rows = []
+    for idx, row1 in df1.iterrows():
+        matches = df2_valid[
+            (df2_valid['nopol']   == row1['nopol']) &
+            (df2_valid['kuantum'] == row1['kuantum'])
+        ]
+        if len(matches) > 0:
+            for link_no, (_, mrow) in enumerate(matches.iterrows(), start=1):
+                result_rows.append({
+                    'nopol':       row1['nopol'],
+                    'kuantum':     row1['kuantum'],
+                    'surat_jalan': mrow['surat_jalan'],
+                    '_f1_idx':     idx,
+                    '_link_no':    link_no,
+                })
+        else:
+            result_rows.append({
+                'nopol':       row1['nopol'],
+                'kuantum':     row1['kuantum'],
+                'surat_jalan': None,
+                '_f1_idx':     idx,
+                '_link_no':    0,
+            })
+    return pd.DataFrame(result_rows)
 
 def _worker(task, cache_snapshot):
     link = task['link']
     ct   = cache_snapshot.get(link)
     if ct is None:
         ct = download_file(link)
-    return {
-        'idx':     task['idx'],
-        'nopol':   task['nopol'],
-        'kuantum': task['kuantum'],
-        'link':    link,
-        'content': ct,
-    }
+    return {**task, 'content': ct}
 
-def run_bulk_download(disp):
+def run_bulk_download(rows, label=''):
     cache_snapshot = dict(st.session_state.dl_cache)
-    tasks = [
-        {'idx': i, 'nopol': row['nopol'],
-         'kuantum': int(row['kuantum']), 'link': row['surat_jalan']}
-        for i, row in disp.iterrows()
-    ]
+    tasks = [{'idx': r['idx'], 'nopol': r['nopol'], 'kuantum': r['kuantum'],
+               'link': r['link'], 'dup_label': r.get('dup_label', '')}
+             for r in rows]
 
-    prog      = st.progress(0)
-    stxt      = st.empty()
+    prog_container = st.empty()
+    with prog_container.container():
+        prog_bar = st.progress(0)
+        st.markdown(f"""
+        <div style="background:#eff6ff;border:1px solid #bfdbfe;border-radius:10px;
+        padding:12px 18px;font-size:0.85rem;color:#1e40af">
+        ⏳ <b>Mengunduh {label}…</b> Harap tunggu, proses ini otomatis.
+        </div>""", unsafe_allow_html=True)
+        status_txt = st.empty()
+
     ok_files  = {}
     new_cache = {}
     fail_list = []
     done_n    = 0
     total     = len(tasks)
-    stxt.text(f'Mengunduh 0 / {total} file...')
 
     with ThreadPoolExecutor(max_workers=8) as ex:
         futs = {ex.submit(_worker, t, cache_snapshot): t for t in tasks}
@@ -480,170 +635,358 @@ def run_bulk_download(disp):
             if ct:
                 new_cache[res['link']] = ct
                 ext  = infer_extension(ct)
-                fn   = make_safe_filename(res['nopol'], res['kuantum'], res['idx'], ext, total=total)
+                fn   = make_safe_filename(res['nopol'], res['kuantum'], res['idx'],
+                                          ext, total=total, dup_label=res['dup_label'])
                 base, c = fn, 1
                 while fn in ok_files:
                     fn = base.rsplit('.', 1)[0] + f'_{c}.' + base.rsplit('.', 1)[-1]
                     c += 1
                 ok_files[fn] = ct
             else:
-                fail_list.append(f"{res['nopol']} ({res['kuantum']})")
+                fail_list.append(f"{res['nopol']} ({res['kuantum']}){res['dup_label']}")
             done_n += 1
-            prog.progress(done_n / total)
-            stxt.text(f'Mengunduh {done_n}/{total} — ✅ {len(ok_files)} | ❌ {len(fail_list)}')
+            prog_bar.progress(done_n / total)
+            pct = int(done_n / total * 100)
+            status_txt.markdown(
+                f"**{pct}%** — {done_n}/{total} diproses &nbsp;|&nbsp; "
+                f"✅ **{len(ok_files)}** berhasil &nbsp;|&nbsp; "
+                f"❌ **{len(fail_list)}** gagal")
 
-    stxt.text(f'Selesai — ✅ {len(ok_files)} berhasil | ❌ {len(fail_list)} gagal')
+    prog_container.empty()
     return ok_files, fail_list, new_cache
 
 # ══════════════════════════════════════════════════════════════════════════════
-# SESSION STATE INIT
+# SESSION STATE
 # ══════════════════════════════════════════════════════════════════════════════
 for _k in ['result_df','missing_df','nopol_diff_df','nopol_miss_df',
            'active_preview','df2_debug','df1_debug','dl_cache',
-           'dup_df','dup_selections','missing_detail',
-           'saran_preview']:   # saran_preview: key = unique str → i baris aktif preview saran
+           'dup_df','missing_detail','saran_preview','dup_prev_active','processed']:
     if _k not in st.session_state:
         st.session_state[_k] = None
-if st.session_state.dl_cache is None:
-    st.session_state.dl_cache = {}
-if st.session_state.dup_selections is None:
-    st.session_state.dup_selections = {}
-if st.session_state.saran_preview is None:
-    st.session_state.saran_preview = {}
+if st.session_state.dl_cache      is None: st.session_state.dl_cache      = {}
+if st.session_state.saran_preview  is None: st.session_state.saran_preview  = {}
+if st.session_state.dup_prev_active is None: st.session_state.dup_prev_active = {}
+if st.session_state.processed      is None: st.session_state.processed      = False
+
+# ══════════════════════════════════════════════════════════════════════════════
+# SIDEBAR — PANDUAN & INFO
+# ══════════════════════════════════════════════════════════════════════════════
+with st.sidebar:
+    st.markdown("""
+    <div style="text-align:center;padding:16px 0 8px">
+      <div style="font-size:2.5rem">🚛</div>
+      <div style="font-weight:800;font-size:1.05rem;color:#1e293b">Tantri Imoet</div>
+      <div style="font-size:0.72rem;color:#94a3b8;margin-top:4px">Bulk Surat Jalan Downloader</div>
+    </div>
+    """, unsafe_allow_html=True)
+
+    st.divider()
+
+    with st.expander("📋 Cara Penggunaan", expanded=True):
+        st.markdown("""
+        **Langkah-langkah:**
+
+        1. **Upload File 1** — Daftar target yang ingin dicocokkan *(NOPOL + Kuantum)*
+        2. **Upload File 2** — Database surat jalan dengan link Google Drive
+        3. Klik **⚙️ Proses Data**
+        4. Di tab **✅ Match**, download ZIP atau Gabung 1 PDF
+        """)
+
+    with st.expander("📂 Format File yang Diterima"):
+        st.markdown("""
+        **File 1 — Target:**
+        - Kolom wajib: `NOPOL` dan `KUANTUM`
+        - Format: `.xlsx`, `.xls`, `.csv`
+
+        **File 2 — Database:**
+        - Kolom wajib: `NOPOL`, `KUANTUM`, `Link/URL Surat Jalan`
+        - Link harus berupa Google Drive URL
+
+        **Nama kolom fleksibel:**
+        - NOPOL: *nomor polisi, no pol, no truk…*
+        - Kuantum: *tonase, qty, jumlah, volume…*
+        - Link: *surat jalan, foto, url, drive…*
+        """)
+
+    with st.expander("❓ FAQ"):
+        st.markdown("""
+        **Mengapa beberapa file gagal?**
+        File mungkin *private* atau link sudah *expired* di Google Drive.
+
+        **Apa itu Duplikat File 1?**
+        Kombinasi NOPOL+Kuantum yang muncul lebih dari sekali. Setiap baris tetap bisa didownload dengan label berbeda.
+
+        **Bagaimana cara kerja Saran NOPOL?**
+        Sistem membandingkan kemiripan teks antar NOPOL menggunakan algoritma *fuzzy matching* untuk menemukan kemungkinan salah ketik.
+
+        **Berapa batas file?**
+        Tidak ada batas jumlah baris. Download paralel dengan 8 thread secara bersamaan.
+        """)
+
+    st.divider()
+
+    if st.session_state.processed and st.session_state.result_df is not None:
+        found = st.session_state.result_df
+        n_cached = len(st.session_state.dl_cache)
+        total_link = len(found)
+
+        st.markdown("**📊 Status Cache**")
+        pct_cached = (n_cached / total_link * 100) if total_link > 0 else 0
+        st.progress(min(pct_cached / 100, 1.0))
+        st.caption(f"{n_cached} / {total_link} file di-cache ({pct_cached:.0f}%)")
+
+        if n_cached > 0:
+            total_size = sum(len(v) for v in st.session_state.dl_cache.values())
+            st.caption(f"Ukuran cache: {total_size/1024/1024:.1f} MB")
+
+        if st.button("🗑️ Bersihkan Cache", use_container_width=True):
+            st.session_state.dl_cache = {}
+            st.rerun()
+
+    st.divider()
+    st.caption("v2.0 · Made with ❤️ · Streamlit")
 
 # ══════════════════════════════════════════════════════════════════════════════
 # HEADER
 # ══════════════════════════════════════════════════════════════════════════════
 st.markdown("""
 <div class="main-header">
-  <div style="font-size:2.4rem">🚛</div>
+  <div class="truck-icon">🚛</div>
   <div>
     <h1>Download Surat Jalan in Bulk</h1>
-    <p>Match NOPOL + KUANTUM → Download ZIP atau Gabung 1 PDF — File dijamin bisa dibuka ✅</p>
+    <p>Cocokkan NOPOL + Kuantum secara otomatis, lalu unduh sebagai ZIP atau PDF gabungan.<br>
+       Dilengkapi deteksi duplikat, saran NOPOL mirip, dan preview langsung.</p>
+    <span class="header-badge">✅ File dijamin bisa dibuka</span>
+    <span class="header-badge" style="margin-left:6px">⚡ 8 Thread Paralel</span>
+    <span class="header-badge" style="margin-left:6px">🔍 Fuzzy NOPOL Match</span>
   </div>
 </div>
 """, unsafe_allow_html=True)
 
 # ══════════════════════════════════════════════════════════════════════════════
-# UPLOAD
+# STEP INDICATOR
 # ══════════════════════════════════════════════════════════════════════════════
-st.markdown('<div class="section-label">Upload File</div>', unsafe_allow_html=True)
-_c1, _c2 = st.columns(2)
-with _c1:
-    st.markdown('<div class="upload-card"><h3>📋 File 1 — Target</h3>'
-                '<p>Kolom: NOPOL, KUANTUM (atau: Nomor Polisi, Tonase, dll)</p></div>',
-                unsafe_allow_html=True)
-    file1 = st.file_uploader("File 1", type=['csv','xlsx','xls'],
-                              key='f1', label_visibility='collapsed')
-with _c2:
-    st.markdown('<div class="upload-card"><h3>🗄️ File 2 — Database Surat Jalan</h3>'
-                '<p>Kolom: NOPOL, KUANTUM, Foto Surat Jalan (link Google Drive)</p></div>',
-                unsafe_allow_html=True)
-    file2 = st.file_uploader("File 2", type=['csv','xlsx','xls'],
-                              key='f2', label_visibility='collapsed')
+def render_step_bar(step):
+    steps = [
+        {"n": "1", "label": "Upload File", "desc": "File 1 & File 2"},
+        {"n": "2", "label": "Proses Data", "desc": "Matching otomatis"},
+        {"n": "3", "label": "Download",    "desc": "ZIP atau PDF"},
+    ]
+    circles, labels = [], []
+    for i, s in enumerate(steps):
+        idx = i + 1
+        if idx < step:
+            status = "done"
+            icon   = "✓"
+        elif idx == step:
+            status = "active"
+            icon   = s["n"]
+        else:
+            status = "idle"
+            icon   = s["n"]
+        circles.append(f'<div class="step-circle {status}">{icon}</div>')
+        labels.append(
+            f'<div><div class="step-label {status}">{s["label"]}</div>'
+            f'<div class="step-desc">{s["desc"]}</div></div>')
 
-_pb, _ = st.columns([2, 8])
-with _pb:
-    process = st.button('⚙️ Proses Data', use_container_width=True)
+    conn_1 = "done" if step > 1 else ""
+    conn_2 = "done" if step > 2 else ""
+
+    st.markdown(f"""
+    <div class="step-bar">
+      <div class="step-item">{circles[0]}{labels[0]}</div>
+      <div class="step-connector {conn_1}"></div>
+      <div class="step-item">{circles[1]}{labels[1]}</div>
+      <div class="step-connector {conn_2}"></div>
+      <div class="step-item">{circles[2]}{labels[2]}</div>
+    </div>
+    """, unsafe_allow_html=True)
+
+current_step = 1
+if st.session_state.get('file1_uploaded') or st.session_state.get('file2_uploaded'):
+    current_step = 1
+if st.session_state.processed:
+    current_step = 3
+render_step_bar(current_step)
 
 # ══════════════════════════════════════════════════════════════════════════════
-# PROCESS
+# UPLOAD SECTION
+# ══════════════════════════════════════════════════════════════════════════════
+st.markdown('<div class="section-label">① Upload File</div>', unsafe_allow_html=True)
+
+col_f1, col_f2 = st.columns(2, gap="large")
+
+with col_f1:
+    has_f1_class = "has-file" if st.session_state.get('f1') else ""
+    st.markdown(f"""
+    <div class="upload-card {has_f1_class}">
+      <div class="upload-card-header">
+        <div class="upload-card-icon blue">📋</div>
+        <div>
+          <div class="upload-card-title">File 1 — Daftar Target</div>
+          <div class="upload-card-sub">Data yang ingin Anda cocokkan & download</div>
+        </div>
+      </div>
+      <div style="font-size:0.73rem;color:#64748b;margin-bottom:6px">Kolom yang dikenali:</div>
+      <div>
+        <span class="col-badge required">NOPOL <sup>*</sup></span>
+        <span class="col-badge required">KUANTUM <sup>*</sup></span>
+        <span class="col-badge">nomor polisi</span>
+        <span class="col-badge">tonase</span>
+        <span class="col-badge">qty</span>
+      </div>
+    </div>
+    """, unsafe_allow_html=True)
+    file1 = st.file_uploader(
+        "Upload File 1",
+        type=['csv', 'xlsx', 'xls'],
+        key='f1',
+        label_visibility='collapsed',
+        help="Format: .xlsx, .xls, atau .csv. Harus punya kolom NOPOL dan KUANTUM."
+    )
+    if file1:
+        st.markdown(f"""
+        <div style="background:#f0fdf4;border:1px solid #86efac;border-radius:8px;
+        padding:8px 14px;font-size:0.8rem;color:#16a34a;margin-top:6px">
+        ✅ <b>{file1.name}</b> — {file1.size/1024:.1f} KB
+        </div>""", unsafe_allow_html=True)
+
+with col_f2:
+    has_f2_class = "has-file" if st.session_state.get('f2') else ""
+    st.markdown(f"""
+    <div class="upload-card {has_f2_class}">
+      <div class="upload-card-header">
+        <div class="upload-card-icon green">🗄️</div>
+        <div>
+          <div class="upload-card-title">File 2 — Database Surat Jalan</div>
+          <div class="upload-card-sub">Berisi link Google Drive ke setiap surat jalan</div>
+        </div>
+      </div>
+      <div style="font-size:0.73rem;color:#64748b;margin-bottom:6px">Kolom yang dikenali:</div>
+      <div>
+        <span class="col-badge required">NOPOL <sup>*</sup></span>
+        <span class="col-badge required">KUANTUM <sup>*</sup></span>
+        <span class="col-badge required">Link/URL <sup>*</sup></span>
+        <span class="col-badge">surat jalan</span>
+        <span class="col-badge">foto</span>
+      </div>
+    </div>
+    """, unsafe_allow_html=True)
+    file2 = st.file_uploader(
+        "Upload File 2",
+        type=['csv', 'xlsx', 'xls'],
+        key='f2',
+        label_visibility='collapsed',
+        help="Format: .xlsx, .xls, atau .csv. Harus punya NOPOL, KUANTUM, dan link Google Drive."
+    )
+    if file2:
+        st.markdown(f"""
+        <div style="background:#f0fdf4;border:1px solid #86efac;border-radius:8px;
+        padding:8px 14px;font-size:0.8rem;color:#16a34a;margin-top:6px">
+        ✅ <b>{file2.name}</b> — {file2.size/1024:.1f} KB
+        </div>""", unsafe_allow_html=True)
+
+# ── PROCESS BUTTON ─────────────────────────────────────────────────────────
+st.markdown("")
+col_btn, col_hint, _ = st.columns([2, 5, 3])
+with col_btn:
+    both_ready = file1 is not None and file2 is not None
+    process = st.button(
+        '⚙️ Proses & Cocokkan Data',
+        use_container_width=True,
+        disabled=not both_ready,
+        help="Upload kedua file terlebih dahulu" if not both_ready else "Klik untuk memulai proses matching"
+    )
+with col_hint:
+    if not both_ready:
+        missing_files = []
+        if not file1: missing_files.append("File 1")
+        if not file2: missing_files.append("File 2")
+        st.markdown(f"""
+        <div style="padding:10px 0;font-size:0.82rem;color:#94a3b8">
+        ℹ️ Upload <b>{' dan '.join(missing_files)}</b> untuk melanjutkan
+        </div>""", unsafe_allow_html=True)
+    else:
+        st.markdown("""
+        <div style="padding:10px 0;font-size:0.82rem;color:#16a34a">
+        ✅ Kedua file siap — klik tombol untuk memproses
+        </div>""", unsafe_allow_html=True)
+
+# ══════════════════════════════════════════════════════════════════════════════
+# PROSES DATA
 # ══════════════════════════════════════════════════════════════════════════════
 if process:
-    if not file1 or not file2:
-        st.warning('⚠️ Upload kedua file terlebih dahulu.')
-    else:
-        with st.spinner('Memproses data...'):
-            df1 = load_file1(read_file(file1))
-            df2 = load_file2(read_file(file2))
-            if df1.empty or df2.empty:
-                st.stop()
+    with st.spinner('🔄 Memproses dan mencocokkan data…'):
+        df1 = load_file1(read_file(file1))
+        df2 = load_file2(read_file(file2))
+        if df1.empty or df2.empty:
+            st.stop()
 
-            # ── DETEKSI DUPLIKAT FILE 1 ────────────────────────────────────
-            dup_df = detect_duplicates_f1(df1)
-            st.session_state.dup_df = dup_df
-            new_sel = {}
-            if not dup_df.empty:
-                for _, r in dup_df.iterrows():
-                    k = (r['nopol'], r['kuantum'], int(r['baris_ke']))
-                    new_sel[k] = bool(r['_include'])
-            st.session_state.dup_selections = new_sel
+        dup_df = detect_duplicates_f1(df1)
+        st.session_state.dup_df = dup_df
 
-            # ── MATCHING ───────────────────────────────────────────────────
-            df2_dedup = (
-                df2[df2['surat_jalan'].str.startswith('http', na=False)]
-                .groupby(['nopol', 'kuantum'], as_index=False)
-                .first()
-            )
+        result_all = match_files(df1, df2)
 
-            result_rows = []
-            for idx, row1 in df1.iterrows():
-                m = df2_dedup[(df2_dedup['nopol'] == row1['nopol']) &
-                              (df2_dedup['kuantum'] == row1['kuantum'])]
-                if len(m) > 0:
-                    result_rows.append({
-                        'nopol': row1['nopol'], 'kuantum': row1['kuantum'],
-                        'surat_jalan': m.iloc[0]['surat_jalan'], '_f1_idx': idx
-                    })
-                else:
-                    result_rows.append({
-                        'nopol': row1['nopol'], 'kuantum': row1['kuantum'],
-                        'surat_jalan': None, '_f1_idx': idx
-                    })
+        found = result_all[
+            result_all['surat_jalan'].notna() &
+            result_all['surat_jalan'].str.startswith('http', na=False)
+        ].copy().reset_index(drop=True)
 
-            result = pd.DataFrame(result_rows)
-            found  = result[result['surat_jalan'].notna() &
-                            result['surat_jalan'].str.startswith('http', na=False)
-                            ].copy().reset_index(drop=True)
+        matched_f1_idx = set(found['_f1_idx'].tolist())
+        missing_rows   = df1[~df1.index.isin(matched_f1_idx)].copy()
+        missing        = missing_rows.drop_duplicates(
+            subset=['nopol','kuantum']).reset_index(drop=True)
 
-            matched = set(found['_f1_idx'].tolist())
-            missing = pd.DataFrame(
-                [{'nopol': r['nopol'], 'kuantum': r['kuantum']}
-                 for i, r in df1.iterrows() if i not in matched]
-            ).drop_duplicates(subset=['nopol','kuantum']).reset_index(drop=True)
+        missing_detail = build_missing_with_suggestions(missing, df1, df2)
+        st.session_state.missing_detail = missing_detail
 
-            # ── MISSING DETAIL (termasuk saran NOPOL mirip) ────────────────
-            missing_detail = build_missing_with_suggestions(missing, df1, df2)
-            st.session_state.missing_detail = missing_detail
+        diff_rows, miss_rows = [], []
+        for item in missing_detail:
+            if item['kategori'] == 'kuantum_beda':
+                diff_rows.append({
+                    'NOPOL': item['nopol'], 'Kuantum File 1': item['kuantum'],
+                    'Kuantum di File 2': item['info'], 'Status': '⚠️ Kuantum tidak cocok'
+                })
+            else:
+                miss_rows.append({
+                    'NOPOL': item['nopol'], 'Kuantum File 1': item['kuantum'],
+                    'Status': '❌ NOPOL tidak ada di File 2',
+                    'Saran NOPOL (Kuantum Cocok)': (
+                        ', '.join([f"{s['nopol_f2']} ({s['similarity']}%)"
+                                   for s in item['saran']]) if item['saran'] else '-')
+                })
 
-            diff_rows, miss_rows = [], []
-            for item in missing_detail:
-                if item['kategori'] == 'kuantum_beda':
-                    diff_rows.append({
-                        'NOPOL': item['nopol'],
-                        'Kuantum File 1': item['kuantum'],
-                        'Kuantum di File 2': item['info'],
-                        'Status': '⚠️ Kuantum tidak cocok'
-                    })
-                else:
-                    miss_rows.append({
-                        'NOPOL': item['nopol'],
-                        'Kuantum File 1': item['kuantum'],
-                        'Status': '❌ NOPOL tidak ada di File 2',
-                        'Saran NOPOL (Kuantum Cocok)': (
-                            ', '.join([f"{s['nopol_f2']} ({s['similarity']}%)" for s in item['saran']])
-                            if item['saran'] else '-'
-                        )
-                    })
+        st.session_state.result_df      = found
+        st.session_state.missing_df     = missing
+        st.session_state.nopol_diff_df  = pd.DataFrame(diff_rows)
+        st.session_state.nopol_miss_df  = pd.DataFrame(miss_rows)
+        st.session_state.df2_debug      = df2
+        st.session_state.df1_debug      = df1
+        st.session_state.active_preview  = None
+        st.session_state.dl_cache        = {}
+        st.session_state.saran_preview   = {}
+        st.session_state.dup_prev_active = {}
+        st.session_state.processed       = True
 
-            st.session_state.result_df      = found
-            st.session_state.missing_df     = missing
-            st.session_state.nopol_diff_df  = pd.DataFrame(diff_rows)
-            st.session_state.nopol_miss_df  = pd.DataFrame(miss_rows)
-            st.session_state.df2_debug      = df2
-            st.session_state.df1_debug      = df1
-            st.session_state.active_preview = None
-            st.session_state.dl_cache       = {}
-            st.session_state.saran_preview  = {}
+    n_dup_groups = (len(dup_df[['nopol','kuantum']].drop_duplicates())
+                    if not dup_df.empty else 0)
+    n_mirip = sum(1 for x in missing_detail if x['kategori'] == 'nopol_mirip')
 
-        n_dup_groups = len(dup_df[['nopol','kuantum']].drop_duplicates()) if not dup_df.empty else 0
-        msg = f'✅ Selesai! {len(found)} surat jalan ditemukan dari {len(df1)} data File 1.'
-        if n_dup_groups > 0:
-            msg += f'  ⚠️ **{n_dup_groups} kombinasi duplikat** terdeteksi di File 1 — cek tab Duplikat!'
-        st.success(msg)
+    st.balloons()
+
+    msg_parts = [f"✅ **{len(found)} link surat jalan** ditemukan dari **{len(df1)} data** File 1"]
+    if len(missing) > 0:
+        msg_parts.append(f"⚠️ **{len(missing)} data** tidak match")
+    if n_dup_groups > 0:
+        msg_parts.append(f"🔁 **{n_dup_groups} kombinasi duplikat** terdeteksi")
+    if n_mirip > 0:
+        msg_parts.append(f"🔍 **{n_mirip} saran NOPOL mirip** tersedia")
+
+    st.success("  ·  ".join(msg_parts))
+    st.rerun()
 
 # ══════════════════════════════════════════════════════════════════════════════
-# RESULTS
+# RESULTS SECTION
 # ══════════════════════════════════════════════════════════════════════════════
 if st.session_state.result_df is not None:
     found          = st.session_state.result_df
@@ -655,227 +998,188 @@ if st.session_state.result_df is not None:
     dup_df         = st.session_state.dup_df if st.session_state.dup_df is not None else pd.DataFrame()
     missing_detail = st.session_state.missing_detail or []
 
-    # ── SUMMARY ────────────────────────────────────────────────────────────────
-    st.markdown('<div class="section-label">Ringkasan Hasil</div>', unsafe_allow_html=True)
-    n_match       = len(found)
-    n_diff_k      = len(nopol_diff) if nopol_diff is not None else 0
-    n_miss_nopol  = len(nopol_miss) if nopol_miss is not None else 0
-    n_all_miss    = len(missing)
-    n_dup_groups  = len(dup_df[['nopol','kuantum']].drop_duplicates()) if not dup_df.empty else 0
-    n_dup_rows    = len(dup_df) if not dup_df.empty else 0
+    n_match      = len(found)
+    n_diff_k     = len(nopol_diff) if nopol_diff is not None else 0
+    n_miss_nopol = len(nopol_miss) if nopol_miss is not None else 0
+    n_all_miss   = len(missing)
+    n_dup_groups = (len(dup_df[['nopol','kuantum']].drop_duplicates())
+                    if not dup_df.empty else 0)
+    n_dup_rows   = len(dup_df) if not dup_df.empty else 0
     n_nopol_mirip = sum(1 for x in missing_detail if x['kategori'] == 'nopol_mirip')
+    match_rate   = int(n_match / max(len(df1_all), 1) * 100) if df1_all is not None else 0
 
+    # ── SUMMARY STATS ──────────────────────────────────────────────────────
+    st.markdown('<div class="section-label">② Ringkasan Hasil</div>', unsafe_allow_html=True)
     st.markdown(f"""
     <div class="stat-grid">
-      <div class="stat-card"><div class="stat-num c-green">{n_match}</div>
-        <div class="stat-lbl">✅ Match (NOPOL + Kuantum)</div></div>
-      <div class="stat-card"><div class="stat-num c-purple">{n_dup_groups}</div>
-        <div class="stat-lbl">🔁 Kombinasi Duplikat File 1</div></div>
-      <div class="stat-card"><div class="stat-num c-yellow">{n_diff_k}</div>
-        <div class="stat-lbl">⚠️ NOPOL Ada, Kuantum Beda</div></div>
-      <div class="stat-card"><div class="stat-num c-red">{n_miss_nopol}</div>
-        <div class="stat-lbl">❌ NOPOL Tidak Ada</div></div>
-      <div class="stat-card"><div class="stat-num c-orange">{n_all_miss}</div>
-        <div class="stat-lbl">🔴 Total Tidak Match</div></div>
+      <div class="stat-card green">
+        <div class="stat-card-icon">✅</div>
+        <div class="stat-num c-green">{n_match}</div>
+        <div class="stat-lbl">Link Ditemukan</div>
+        <div style="font-size:0.68rem;color:#22c55e;margin-top:4px;font-weight:600">
+          {match_rate}% match rate
+        </div>
+      </div>
+      <div class="stat-card purple">
+        <div class="stat-card-icon">🔁</div>
+        <div class="stat-num c-purple">{n_dup_groups}</div>
+        <div class="stat-lbl">Duplikat File 1</div>
+        <div style="font-size:0.68rem;color:#a855f7;margin-top:4px;font-weight:600">
+          {n_dup_rows} baris total
+        </div>
+      </div>
+      <div class="stat-card yellow">
+        <div class="stat-card-icon">⚠️</div>
+        <div class="stat-num c-yellow">{n_diff_k}</div>
+        <div class="stat-lbl">Kuantum Beda</div>
+        <div style="font-size:0.68rem;color:#f59e0b;margin-top:4px;font-weight:600">
+          NOPOL ada, qty ≠
+        </div>
+      </div>
+      <div class="stat-card red">
+        <div class="stat-card-icon">❌</div>
+        <div class="stat-num c-red">{n_miss_nopol}</div>
+        <div class="stat-lbl">NOPOL Tidak Ada</div>
+        <div style="font-size:0.68rem;color:#ef4444;margin-top:4px;font-weight:600">
+          {n_nopol_mirip} ada saran mirip
+        </div>
+      </div>
+      <div class="stat-card orange">
+        <div class="stat-card-icon">🔴</div>
+        <div class="stat-num c-orange">{n_all_miss}</div>
+        <div class="stat-lbl">Total Tidak Match</div>
+        <div style="font-size:0.68rem;color:#f97316;margin-top:4px;font-weight:600">
+          dari {len(df1_all)} data File 1
+        </div>
+      </div>
     </div>
     """, unsafe_allow_html=True)
 
+    # ── SMART ALERTS ────────────────────────────────────────────────────────
     if n_dup_groups > 0:
-        st.markdown(
-            f'<div class="dup-box">🔁 <b>Perhatian: {n_dup_groups} kombinasi NOPOL+Kuantum duplikat '
-            f'({n_dup_rows} baris total) ditemukan di File 1.</b> '
-            f'Secara default hanya baris <b>pertama</b> yang akan diproses. '
-            f'Kunjungi tab <b>🔁 Duplikat File 1</b> untuk memilih baris mana yang ingin diikutkan.</div>',
-            unsafe_allow_html=True
-        )
+        st.markdown(f"""
+        <div class="alert purple">
+          <span class="alert-icon">🔁</span>
+          <div><b>{n_dup_groups} kombinasi NOPOL+Kuantum duplikat</b> ({n_dup_rows} baris total) di File 1.
+          Setiap baris <b>tetap bisa didownload</b> dengan label <code>_DUPLIKAT1</code>, <code>_DUPLIKAT2</code>, dst.
+          Cocok untuk data NOPOL+Kuantum sama dengan <b>tanggal berbeda</b>. Lihat tab 🔁 Duplikat.</div>
+        </div>
+        """, unsafe_allow_html=True)
 
     if n_nopol_mirip > 0:
-        st.markdown(
-            f'<div class="suggestion-box">🔍 <b>{n_nopol_mirip} data memiliki saran NOPOL mirip</b> '
-            f'dengan kuantum yang cocok di File 2. '
-            f'Cek tab <b>❌ Tidak Match NOPOL</b> untuk melihat saran dan preview surat jalannya.</div>',
-            unsafe_allow_html=True
-        )
+        st.markdown(f"""
+        <div class="alert sky">
+          <span class="alert-icon">🔍</span>
+          <div><b>{n_nopol_mirip} data</b> punya saran NOPOL mirip dengan kuantum cocok di File 2.
+          Kemungkinan ada <b>salah ketik 1–2 karakter</b>. Cek tab ❌ Tidak Match NOPOL.</div>
+        </div>
+        """, unsafe_allow_html=True)
 
-    st.markdown("""
-    <div class="info-box">
-    ℹ️ <b>Match ketat:</b> NOPOL <em>dan</em> KUANTUM harus sama persis.
-    Normalisasi otomatis spasi &amp; huruf besar/kecil.<br>
-    🔧 <b>Multi-link di File 2:</b> Jika satu NOPOL+Kuantum punya beberapa link, link <b>pertama</b> yang dipakai.<br>
-    🔍 <b>Saran NOPOL:</b> Jika NOPOL tidak ditemukan namun KUANTUM cocok, sistem akan mencari NOPOL
-    yang mirip (kemungkinan salah ketik 1–2 huruf).<br>
-    📦 Tersedia <b>ZIP</b> (file terpisah) dan <b>Gabung 1 PDF</b>.
-    </div>
-    """, unsafe_allow_html=True)
+    if n_match == 0:
+        st.markdown("""
+        <div class="alert error">
+          <span class="alert-icon">⚠️</span>
+          <div><b>Tidak ada data yang match.</b> Pastikan format NOPOL dan KUANTUM di kedua file konsisten.
+          Sistem akan melakukan normalisasi spasi dan huruf kapital secara otomatis.</div>
+        </div>
+        """, unsafe_allow_html=True)
 
-    # ══════════════════════════════════════════════════════════════════════════
+    # ══════════════════════════════════════════════════════════════════════
     # TABS
-    # ══════════════════════════════════════════════════════════════════════════
+    # ══════════════════════════════════════════════════════════════════════
+    st.markdown('<div class="section-label">③ Detail & Download</div>', unsafe_allow_html=True)
+
     tab1, tab_dup, tab2, tab3, tab4 = st.tabs([
-        f"✅ Match Semua ({n_match})",
-        f"🔁 Duplikat File 1 ({n_dup_groups} kombinasi)",
-        f"⚠️ Tidak Match Kuantum ({n_diff_k})",
-        f"❌ Tidak Match NOPOL ({n_miss_nopol})",
+        f"✅ Match ({n_match})",
+        f"🔁 Duplikat ({n_dup_groups} grup · {n_dup_rows} baris)",
+        f"⚠️ Kuantum Beda ({n_diff_k})",
+        f"❌ NOPOL Tidak Ada ({n_miss_nopol})",
         f"🔴 Semua Tidak Match ({n_all_miss})",
     ])
 
     # ────────────────────────────────────────────────────────────────────────
-    # TAB DUPLIKAT
-    # ────────────────────────────────────────────────────────────────────────
-    with tab_dup:
-        if dup_df.empty:
-            st.markdown('<div class="success-box">🎉 <b>Tidak ada duplikat di File 1!</b> '
-                        'Semua kombinasi NOPOL + Kuantum unik.</div>', unsafe_allow_html=True)
-        else:
-            st.markdown(
-                f'<div class="dup-box">🔁 <b>{n_dup_groups} kombinasi NOPOL+Kuantum muncul lebih dari sekali</b> '
-                f'di File 1 ({n_dup_rows} baris total).<br>'
-                f'Centang baris yang ingin <b>diikutkan</b> saat download. '
-                f'Default: hanya baris <b>pertama</b> yang dipilih.<br>'
-                f'Jika tidak ada yang dicentang untuk satu kombinasi, kombinasi itu akan <b>dilewati</b>.</div>',
-                unsafe_allow_html=True
-            )
-
-            _da, _db, _dc, _ = st.columns([2, 2, 2, 4])
-            with _da:
-                if st.button('☑️ Pilih Semua', key='dup_all'):
-                    for k in st.session_state.dup_selections:
-                        st.session_state.dup_selections[k] = True
-                    st.rerun()
-            with _db:
-                if st.button('🔲 Batalkan Semua', key='dup_none'):
-                    for k in st.session_state.dup_selections:
-                        st.session_state.dup_selections[k] = False
-                    st.rerun()
-            with _dc:
-                if st.button('🔄 Reset ke Default', key='dup_reset'):
-                    for k in st.session_state.dup_selections:
-                        _, _, baris_ke = k
-                        st.session_state.dup_selections[k] = (baris_ke == 1)
-                    st.rerun()
-
-            groups = dup_df.groupby(['nopol', 'kuantum'])
-            for (nopol, kuantum), grp in groups:
-                st.markdown(
-                    f'<div style="background:#fdf4ff;border:1px solid #e9d5ff;border-radius:8px;'
-                    f'padding:10px 16px;margin:8px 0;">'
-                    f'<b style="color:#7c3aed">🚛 {nopol}</b>'
-                    f'<span style="color:#94a3b8;margin:0 8px">|</span>'
-                    f'<b style="color:#1e40af">Kuantum: {int(kuantum):,}</b>'
-                    f'<span style="color:#94a3b8;margin:0 8px">|</span>'
-                    f'<span style="color:#dc2626;font-size:0.8rem">Muncul {len(grp)}x di File 1</span>'
-                    f'</div>',
-                    unsafe_allow_html=True
-                )
-
-                for _, row in grp.iterrows():
-                    baris_ke = int(row['baris_ke'])
-                    sel_key  = (nopol, kuantum, baris_ke)
-
-                    match_sj = found[
-                        (found['nopol'] == nopol) & (found['kuantum'] == kuantum)
-                    ]
-                    has_link  = len(match_sj) > 0
-                    link_info = "🔗 Ada link surat jalan" if has_link else "⚠️ Tidak ada link surat jalan"
-
-                    current_val = st.session_state.dup_selections.get(sel_key, baris_ke == 1)
-                    new_val = st.checkbox(
-                        f"Baris ke-{baris_ke}  ·  {link_info}",
-                        value=current_val,
-                        key=f'dup_cb_{nopol}_{kuantum}_{baris_ke}'
-                    )
-                    if new_val != current_val:
-                        st.session_state.dup_selections[sel_key] = new_val
-
-            st.markdown('<div class="section-label">Export Daftar Duplikat</div>',
-                        unsafe_allow_html=True)
-            export_dup = dup_df[['nopol', 'kuantum', 'baris_ke', 'jumlah_duplikat']].copy()
-            export_dup.columns = ['NOPOL', 'Kuantum', 'Baris ke-', 'Total Duplikat']
-            export_dup['Dipilih'] = export_dup.apply(
-                lambda r: '✅ Ya' if st.session_state.dup_selections.get(
-                    (r['NOPOL'], r['Kuantum'], int(r['Baris ke-'])), False
-                ) else '❌ Tidak', axis=1
-            )
-            _de, _ = st.columns([2, 8])
-            with _de:
-                st.download_button(
-                    '📥 Export CSV Duplikat',
-                    export_dup.to_csv(index=False).encode('utf-8'),
-                    'duplikat_file1.csv', 'text/csv', key='dl_dup'
-                )
-            st.dataframe(export_dup, use_container_width=True, hide_index=True)
-
-    # ────────────────────────────────────────────────────────────────────────
-    # Helper: filter found berdasarkan pilihan duplikat
-    # ────────────────────────────────────────────────────────────────────────
-    def get_filtered_found():
-        if dup_df.empty:
-            return found.copy()
-
-        chosen = {}
-        for (nopol, kuantum, baris_ke), sel in st.session_state.dup_selections.items():
-            if sel:
-                chosen.setdefault((nopol, kuantum), []).append(baris_ke)
-
-        dup_combos    = set(zip(dup_df['nopol'], dup_df['kuantum']))
-        result_rows   = []
-        combo_counter = {}
-        for _, row in found.iterrows():
-            combo = (row['nopol'], row['kuantum'])
-            if combo not in dup_combos:
-                result_rows.append(row)
-            else:
-                combo_counter[combo] = combo_counter.get(combo, 0) + 1
-                baris_ke = combo_counter[combo]
-                if baris_ke in chosen.get(combo, []):
-                    result_rows.append(row)
-
-        return pd.DataFrame(result_rows).reset_index(drop=True) if result_rows else pd.DataFrame(columns=found.columns)
-
-    # ────────────────────────────────────────────────────────────────────────
-    # TAB 1 — MATCH
+    # TAB 1 — MATCH SEMUA
     # ────────────────────────────────────────────────────────────────────────
     with tab1:
-        found_filtered = get_filtered_found()
-        n_excluded     = len(found) - len(found_filtered)
-
-        if n_excluded > 0:
-            st.markdown(
-                f'<div class="dup-box">🔁 <b>{n_excluded} baris duplikat dikecualikan</b> sesuai pilihan di tab '
-                f'"🔁 Duplikat File 1". Menampilkan <b>{len(found_filtered)}</b> dari {len(found)} total match.</div>',
-                unsafe_allow_html=True
-            )
-
-        if len(found_filtered) == 0:
+        if len(found) == 0:
             st.markdown("""
-            <div class="warn-box">
-            ⚠️ <strong>0 surat jalan ditemukan.</strong>
-            Lihat tab lain untuk detail penyebabnya.
+            <div class="empty-state">
+              <div class="icon">🔍</div>
+              <h3>Tidak Ada Data yang Match</h3>
+              <p>Tidak ada kombinasi NOPOL + Kuantum yang cocok antara File 1 dan File 2.
+                 Periksa format data Anda.</p>
             </div>
             """, unsafe_allow_html=True)
         else:
-            search = st.text_input('cari', placeholder='🔍  Ketik NOPOL untuk filter...',
-                                   label_visibility='collapsed', key='search_found')
-            disp = found_filtered.copy()
+            # ── SEARCH & FILTER ──────────────────────────────────────────────
+            sc1, sc2 = st.columns([3, 7])
+            with sc1:
+                search = st.text_input(
+                    'Filter NOPOL',
+                    placeholder='🔍  Ketik NOPOL untuk filter…',
+                    label_visibility='collapsed',
+                    key='search_found'
+                )
+            disp = found.copy()
             if search.strip():
                 disp = disp[disp['nopol'].str.contains(
                     re.escape(norm_nopol(search.strip())), na=False, case=False)
                 ].reset_index(drop=True)
 
-            st.markdown(f'Menampilkan **{len(disp)}** dari **{len(found_filtered)}** surat jalan.')
+            with sc2:
+                if search.strip():
+                    st.markdown(f"""
+                    <div style="padding:10px 4px;font-size:0.82rem;color:#64748b">
+                    Menampilkan <b>{len(disp)}</b> dari <b>{len(found)}</b> link surat jalan
+                    </div>""", unsafe_allow_html=True)
+                else:
+                    st.markdown(f"""
+                    <div style="padding:10px 4px;font-size:0.82rem;color:#64748b">
+                    Total <b>{len(found)}</b> link surat jalan siap didownload
+                    </div>""", unsafe_allow_html=True)
 
-            bc1, bc2, bc3, _ = st.columns([2, 2, 2, 4])
-            with bc1:
-                do_zip    = st.button('📦 Download ZIP',    use_container_width=True,
-                                      help='Semua file terpisah dalam satu ZIP', key='btn_zip')
-            with bc2:
-                do_merge  = st.button('📄 Gabung 1 PDF',    use_container_width=True,
-                                      help='Gabungkan semua menjadi 1 file PDF', key='btn_merge')
-            with bc3:
-                do_preload = st.button('⚡ Pre-load Cache', use_container_width=True,
-                                       help='Download semua ke memori agar tombol per baris instan',
-                                       key='btn_preload')
+            # ── ACTION BAR ──────────────────────────────────────────────────
+            st.markdown("""
+            <div style="font-size:0.72rem;font-weight:700;text-transform:uppercase;
+            letter-spacing:1px;color:#94a3b8;margin:16px 0 8px">
+            Aksi Bulk Download
+            </div>""", unsafe_allow_html=True)
 
+            ac1, ac2, ac3, ac4 = st.columns([2.2, 2.2, 2.2, 3.4])
+            with ac1:
+                do_zip = st.button(
+                    '📦 Download ZIP',
+                    use_container_width=True,
+                    key='btn_zip',
+                    help=f"Download {len(disp)} surat jalan sebagai file ZIP terpisah"
+                )
+            with ac2:
+                do_merge = st.button(
+                    '📄 Gabung 1 PDF',
+                    use_container_width=True,
+                    key='btn_merge',
+                    help=f"Gabungkan {len(disp)} surat jalan menjadi 1 file PDF"
+                )
+            with ac3:
+                do_preload = st.button(
+                    '⚡ Pre-load Cache',
+                    use_container_width=True,
+                    key='btn_preload',
+                    help="Download semua file ke cache agar download individual lebih cepat"
+                )
+            with ac4:
+                n_cached_tab = sum(1 for _, r in disp.iterrows()
+                                   if r['surat_jalan'] in st.session_state.dl_cache)
+                pct_cached_tab = int(n_cached_tab / max(len(disp), 1) * 100)
+                cache_color = "#22c55e" if pct_cached_tab == 100 else ("#f59e0b" if pct_cached_tab > 0 else "#94a3b8")
+                st.markdown(f"""
+                <div style="background:#f8fafc;border:1px solid #e2e8f0;border-radius:8px;
+                padding:8px 14px;font-size:0.8rem;color:#475569;line-height:1.5">
+                🗃️ Cache: <b style="color:{cache_color}">{n_cached_tab}/{len(disp)}</b>
+                file ({pct_cached_tab}%) · {'Semua siap ✅' if pct_cached_tab == 100 else 'Gunakan ⚡ Pre-load'}
+                </div>""", unsafe_allow_html=True)
+
+            # ── PRE-LOAD ─────────────────────────────────────────────────────
             if do_preload and len(disp) > 0:
                 links_needed = [row['surat_jalan'] for _, row in disp.iterrows()
                                 if row['surat_jalan'] not in st.session_state.dl_cache]
@@ -884,295 +1188,550 @@ if st.session_state.result_df is not None:
                 else:
                     cache_snap = dict(st.session_state.dl_cache)
                     tasks_pre  = [{'idx': i, 'nopol': row['nopol'],
-                                    'kuantum': int(row['kuantum']), 'link': row['surat_jalan']}
-                                   for i, row in disp.iterrows()
-                                   if row['surat_jalan'] not in cache_snap]
+                                   'kuantum': int(row['kuantum']),
+                                   'link': row['surat_jalan'], 'dup_label': ''}
+                                  for i, row in disp.iterrows()
+                                  if row['surat_jalan'] not in cache_snap]
                     prog = st.progress(0)
                     stxt = st.empty()
-                    ok_n, fail_n, done_n = 0, 0, 0
+                    ok_n = fail_n = done_n = 0
                     new_cache = {}
                     with ThreadPoolExecutor(max_workers=8) as ex:
                         futs = {ex.submit(_worker, t, cache_snap): t for t in tasks_pre}
                         for fut in as_completed(futs):
                             res = fut.result()
                             if res['content']:
-                                new_cache[res['link']] = res['content']
-                                ok_n += 1
+                                new_cache[res['link']] = res['content']; ok_n += 1
                             else:
                                 fail_n += 1
                             done_n += 1
                             prog.progress(done_n / len(tasks_pre))
-                            stxt.text(f'Pre-load {done_n}/{len(tasks_pre)} — ✅ {ok_n} | ❌ {fail_n}')
+                            stxt.markdown(
+                                f"Pre-load **{done_n}/{len(tasks_pre)}** — "
+                                f"✅ {ok_n} berhasil &nbsp;|&nbsp; ❌ {fail_n} gagal")
                     st.session_state.dl_cache.update(new_cache)
-                    stxt.text(f'Pre-load selesai: ✅ {ok_n} | ❌ {fail_n}')
+                    stxt.success(f'✅ Pre-load selesai: {ok_n} berhasil, {fail_n} gagal')
 
+            # ── ZIP DOWNLOAD ─────────────────────────────────────────────────
             if do_zip and len(disp) > 0:
-                ok_files, fail_list, new_cache = run_bulk_download(disp)
+                rows_dl = [{'idx': i, 'nopol': row['nopol'], 'kuantum': int(row['kuantum']),
+                             'link': row['surat_jalan'], 'dup_label': ''}
+                            for i, row in disp.iterrows()]
+                ok_files, fail_list, new_cache = run_bulk_download(rows_dl, 'ZIP')
                 st.session_state.dl_cache.update(new_cache)
                 if ok_files:
+                    zip_data = make_zip(ok_files)
+                    st.markdown(f"""
+                    <div class="alert success">
+                      <span class="alert-icon">📦</span>
+                      <div><b>{len(ok_files)} file berhasil diunduh</b> · ZIP siap · 
+                      Ukuran: {len(zip_data)/1024:.0f} KB</div>
+                    </div>""", unsafe_allow_html=True)
                     st.download_button(
-                        f'💾 Simpan ZIP ({len(ok_files)} file)',
-                        make_zip(ok_files),
-                        'surat_jalan_semua.zip',
-                        'application/zip',
-                        key='dl_zip_result'
-                    )
+                        f'💾 Simpan ZIP ({len(ok_files)} file · {len(zip_data)/1024:.0f} KB)',
+                        zip_data, 'surat_jalan_semua.zip', 'application/zip', key='dl_zip_result')
                 if fail_list:
-                    with st.expander(f'❌ {len(fail_list)} file gagal diunduh'):
+                    with st.expander(f'⚠️ {len(fail_list)} file gagal diunduh — klik untuk detail'):
                         for f in fail_list:
-                            st.write(f'• {f}')
+                            st.markdown(f'• `{f}`')
 
+            # ── MERGE PDF ──────────────────────────────────────────────────
             if do_merge and len(disp) > 0:
-                ok_files, fail_list, new_cache = run_bulk_download(disp)
+                rows_dl = [{'idx': i, 'nopol': row['nopol'], 'kuantum': int(row['kuantum']),
+                             'link': row['surat_jalan'], 'dup_label': ''}
+                            for i, row in disp.iterrows()]
+                ok_files, fail_dl, new_cache = run_bulk_download(rows_dl, 'PDF')
                 st.session_state.dl_cache.update(new_cache)
                 if ok_files:
-                    with st.spinner('Menggabungkan semua file menjadi 1 PDF...'):
-                        ordered = []
-                        for i, row in disp.iterrows():
-                            ct = new_cache.get(row['surat_jalan']) or \
-                                 st.session_state.dl_cache.get(row['surat_jalan'])
-                            if ct:
-                                ordered.append(ct)
-                        merged = merge_pdfs(ordered)
+                    with st.spinner('📄 Menggabungkan semua file menjadi 1 PDF…'):
+                        ordered = [new_cache.get(row['surat_jalan']) or
+                                   st.session_state.dl_cache.get(row['surat_jalan'])
+                                   for _, row in disp.iterrows()]
+                        ordered = [x for x in ordered if x]
+                        merged  = merge_pdfs(ordered)
                     if merged:
-                        st.success(f'✅ {len(ordered)} file berhasil digabung menjadi 1 PDF '
-                                   f'({len(merged)//1024:,} KB)')
+                        st.markdown(f"""
+                        <div class="alert success">
+                          <span class="alert-icon">📄</span>
+                          <div><b>{len(ordered)} file berhasil digabung</b> · 
+                          Ukuran PDF: {len(merged)/1024:.0f} KB</div>
+                        </div>""", unsafe_allow_html=True)
                         st.download_button(
-                            f'💾 Simpan PDF Gabungan ({len(ordered)} surat jalan)',
-                            merged,
-                            'surat_jalan_gabungan.pdf',
-                            'application/pdf',
-                            key='dl_merged_pdf'
-                        )
+                            f'💾 Simpan PDF Gabungan ({len(ordered)} halaman · {len(merged)/1024:.0f} KB)',
+                            merged, 'surat_jalan_gabungan.pdf', 'application/pdf', key='dl_merged_pdf')
+                        if fail_dl:
+                            with st.expander(f'⚠️ {len(fail_dl)} file tidak ikut digabung'):
+                                for f in fail_dl: st.markdown(f'• `{f}`')
                     else:
-                        st.error(
-                            '❌ Gagal membuat PDF gabungan. '
-                            'Pastikan `pypdf` dan `reportlab` terinstall: '
-                            '`pip install pypdf reportlab Pillow`'
-                        )
-                if fail_list:
-                    with st.expander(f'❌ {len(fail_list)} file tidak bisa digabung'):
-                        for f in fail_list:
-                            st.write(f'• {f}')
+                        st.error('❌ Gagal membuat PDF gabungan. Pastikan `pypdf`, `reportlab`, `Pillow` terinstall.')
+                elif fail_dl:
+                    st.error(f'❌ Semua {len(fail_dl)} file gagal diunduh.')
 
+            # ── TABEL DETAIL ──────────────────────────────────────────────
             st.markdown('<div class="section-label">Detail per Surat Jalan</div>',
                         unsafe_allow_html=True)
-            hcols = st.columns([0.5, 2.5, 1.5, 2, 1.2, 1.8])
-            for col, lbl in zip(hcols, ['No.', 'NOPOL', 'KUANTUM', 'Link GDrive', '👁 Preview', '⬇ Download']):
-                col.markdown(f'**{lbl}**')
-            st.divider()
+
+            # Header baris
+            h0, h1, h2, h3, h4, h5, h6 = st.columns([0.5, 2.5, 1.2, 0.8, 1.8, 0.8, 1.8])
+            for col, lbl in zip([h0,h1,h2,h3,h4,h5,h6],
+                                 ['No.','NOPOL','Kuantum','Link #','Google Drive','Preview','Download']):
+                col.markdown(f'<span style="font-size:0.72rem;font-weight:700;color:#64748b;text-transform:uppercase;letter-spacing:.8px">{lbl}</span>', unsafe_allow_html=True)
+
+            st.markdown('<hr class="styled-divider">', unsafe_allow_html=True)
 
             for i, row in disp.iterrows():
                 nopol   = row['nopol']
                 kuantum = int(row['kuantum'])
                 link    = row['surat_jalan']
+                link_no = int(row.get('_link_no', 1))
                 fid     = extract_fid(link)
                 is_dup  = not dup_df.empty and (
-                    ((dup_df['nopol'] == nopol) & (dup_df['kuantum'] == kuantum)).any()
-                )
-                dup_badge = ' 🔁' if is_dup else ''
-                cols      = st.columns([0.5, 2.5, 1.5, 2, 1.2, 1.8])
+                    ((dup_df['nopol'] == nopol) & (dup_df['kuantum'] == kuantum)).any())
 
-                cols[0].markdown(f'`#{i+1}`')
-                cols[1].markdown(f'`{nopol}`{dup_badge}')
-                cols[2].markdown(f'**{kuantum:,}**')
+                cols = st.columns([0.5, 2.5, 1.2, 0.8, 1.8, 0.8, 1.8])
+                cols[0].markdown(f'<span style="font-size:0.8rem;color:#94a3b8">#{i+1}</span>', unsafe_allow_html=True)
+
+                dup_badge = '<span style="background:#ede9fe;color:#7c3aed;font-size:0.65rem;padding:1px 5px;border-radius:4px;margin-left:4px">DUP</span>' if is_dup else ''
+                cols[1].markdown(f'<span class="nopol-pill {"dup" if is_dup else ""}">{nopol}</span>{dup_badge}', unsafe_allow_html=True)
+                cols[2].markdown(f'<b>{kuantum:,}</b>')
+                cols[3].markdown(f'<span style="font-size:0.78rem;color:#94a3b8">#{link_no}</span>', unsafe_allow_html=True)
+
                 if fid:
-                    cols[3].markdown(f'[🔗 Buka](https://drive.google.com/file/d/{fid}/view)')
+                    cols[4].markdown(f'[🔗 Buka Drive](https://drive.google.com/file/d/{fid}/view)')
                 else:
-                    cols[3].markdown(f'[🔗 Buka]({link})')
-
-                with cols[4]:
-                    if st.button('👁️ Lihat', key=f'v_{i}'):
-                        st.session_state.active_preview = (
-                            None if st.session_state.active_preview == i else i
-                        )
+                    cols[4].markdown(f'[🔗 Buka]({link})')
 
                 with cols[5]:
+                    btn_lbl = '👁️ ✕' if st.session_state.active_preview == i else '👁️'
+                    if st.button(btn_lbl, key=f'v_{i}', help="Toggle preview"):
+                        st.session_state.active_preview = (
+                            None if st.session_state.active_preview == i else i)
+                        st.rerun()
+
+                with cols[6]:
+                    dup_label = f'_DUPLIKAT{link_no}' if link_no > 1 else ''
                     cached = st.session_state.dl_cache.get(link)
                     if cached:
                         ext   = infer_extension(cached)
-                        fname = make_safe_filename(nopol, kuantum, i, ext)
+                        fname = make_safe_filename(nopol, kuantum, i, ext,
+                                                   total=len(disp), dup_label=dup_label)
                         mime  = 'application/pdf' if ext == 'pdf' else f'image/{ext}'
-                        st.download_button(f'⬇️ .{ext.upper()}', cached, fname, mime,
-                                           key=f'd_{i}')
+                        st.download_button(f'⬇️ .{ext.upper()}', cached, fname, mime, key=f'd_{i}')
                     else:
-                        if st.button('⬇️ Download', key=f'db_{i}'):
-                            with st.spinner(f'Mengunduh {nopol}...'):
+                        if st.button('⬇️ Unduh', key=f'db_{i}', help=f"Download surat jalan {nopol}"):
+                            with st.spinner(f'Mengunduh {nopol}…'):
                                 ct = download_file(link)
                             if ct:
                                 st.session_state.dl_cache[link] = ct
                                 ext   = infer_extension(ct)
-                                fname = make_safe_filename(nopol, kuantum, i, ext)
+                                fname = make_safe_filename(nopol, kuantum, i, ext,
+                                                           total=len(disp), dup_label=dup_label)
                                 mime  = 'application/pdf' if ext == 'pdf' else f'image/{ext}'
                                 st.download_button(f'💾 Simpan .{ext.upper()}', ct,
                                                    fname, mime, key=f'ds_{i}')
-                                st.success(f'✅ {fname} siap disimpan!')
                             else:
-                                st.error(
-                                    '❌ Gagal. Kemungkinan: file private, link expired, '
-                                    'atau timeout. Coba buka link GDrive secara manual.'
-                                )
+                                st.error('❌ Gagal. File private/expired.')
 
                 if st.session_state.active_preview == i:
                     purl = to_preview(link)
                     if purl:
                         import streamlit.components.v1 as components
+                        st.markdown(f"""
+                        <div class="alert sky" style="margin-top:8px">
+                          <span class="alert-icon">👁️</span>
+                          <div>Preview — <b>{nopol}</b> · Kuantum: <b>{kuantum:,}</b>
+                          <a href="{purl}" target="_blank" style="margin-left:8px;font-size:0.78rem">
+                          ↗ Buka di tab baru</a></div>
+                        </div>""", unsafe_allow_html=True)
                         components.html(
                             f'<iframe src="{purl}" width="100%" height="680" '
-                            f'style="border:1px solid #e2e8f0;border-radius:10px;background:#fff" '
-                            f'allow="autoplay"></iframe>',
-                            height=700
-                        )
-                        st.caption(f'Preview kosong? → [buka di tab baru]({purl})')
+                            f'style="border:1px solid #bfdbfe;border-radius:12px;background:#fff" '
+                            f'allow="autoplay"></iframe>', height=700)
                     else:
                         st.error('Link preview tidak valid.')
+
+                if i < len(disp) - 1:
+                    st.markdown('<hr class="styled-divider">', unsafe_allow_html=True)
+
+    # ────────────────────────────────────────────────────────────────────────
+    # TAB DUPLIKAT
+    # ────────────────────────────────────────────────────────────────────────
+    with tab_dup:
+        if dup_df.empty:
+            st.markdown("""
+            <div class="empty-state">
+              <div class="icon">🎉</div>
+              <h3>Tidak Ada Duplikat!</h3>
+              <p>Semua kombinasi NOPOL + Kuantum di File 1 adalah unik.</p>
+            </div>
+            """, unsafe_allow_html=True)
+        else:
+            st.markdown(f"""
+            <div class="alert purple">
+              <span class="alert-icon">🔁</span>
+              <div><b>{n_dup_groups} kombinasi NOPOL+Kuantum muncul lebih dari sekali</b> 
+              di File 1 ({n_dup_rows} baris total). Setiap baris <b>tetap bisa didownload</b> secara 
+              individual — nama file dibedakan dengan label <code>_DUPLIKAT1</code>, 
+              <code>_DUPLIKAT2</code>, dst.</div>
+            </div>
+            """, unsafe_allow_html=True)
+
+            sd_dup = st.text_input(
+                '', placeholder='🔍  Filter NOPOL duplikat…',
+                label_visibility='collapsed', key='sd_dup')
+
+            dza, dzb, _ = st.columns([2.5, 2.5, 5])
+            with dza:
+                do_zip_dup = st.button('📦 ZIP Semua Duplikat', use_container_width=True, key='btn_zip_dup')
+            with dzb:
+                do_merge_dup = st.button('📄 Gabung PDF Duplikat', use_container_width=True, key='btn_merge_dup')
+
+            # Build list
+            all_dup_rows = []
+            for (nopol, kuantum), grp in dup_df.groupby(['nopol', 'kuantum']):
+                links_found = found[
+                    (found['nopol'] == nopol) & (found['kuantum'] == kuantum)
+                ]['surat_jalan'].tolist()
+                n_links = len(links_found)
+                for i_row, (_, drow) in enumerate(grp.iterrows(), start=1):
+                    baris_ke  = int(drow['baris_ke'])
+                    dup_label = f'_DUPLIKAT{baris_ke}'
+                    if n_links == 0:
+                        link = None
+                    elif i_row <= n_links:
+                        link = links_found[i_row - 1]
+                    else:
+                        link = links_found[0]
+                    all_dup_rows.append({
+                        'nopol': nopol, 'kuantum': int(kuantum),
+                        'baris_ke': baris_ke, 'dup_label': dup_label, 'link': link,
+                    })
+
+            if do_zip_dup:
+                valid_rows = [r for r in all_dup_rows if r['link']]
+                if not valid_rows:
+                    st.warning('⚠️ Tidak ada link tersedia.')
+                else:
+                    rows_dl = [{'idx': i, 'nopol': r['nopol'], 'kuantum': r['kuantum'],
+                                 'link': r['link'], 'dup_label': r['dup_label']}
+                                for i, r in enumerate(valid_rows)]
+                    ok_files, fail_list, new_cache = run_bulk_download(rows_dl, 'Duplikat ZIP')
+                    st.session_state.dl_cache.update(new_cache)
+                    if ok_files:
+                        st.download_button(f'💾 Simpan ZIP Duplikat ({len(ok_files)} file)',
+                                           make_zip(ok_files), 'duplikat_semua.zip',
+                                           'application/zip', key='dl_zip_dup_result')
+                    if fail_list:
+                        with st.expander(f'❌ {len(fail_list)} gagal'):
+                            for f in fail_list: st.markdown(f'• `{f}`')
+
+            if do_merge_dup:
+                valid_rows = [r for r in all_dup_rows if r['link']]
+                if not valid_rows:
+                    st.warning('⚠️ Tidak ada link tersedia.')
+                else:
+                    rows_dl = [{'idx': i, 'nopol': r['nopol'], 'kuantum': r['kuantum'],
+                                 'link': r['link'], 'dup_label': r['dup_label']}
+                                for i, r in enumerate(valid_rows)]
+                    ok_files, fail_dl, new_cache = run_bulk_download(rows_dl, 'Duplikat PDF')
+                    st.session_state.dl_cache.update(new_cache)
+                    if ok_files:
+                        with st.spinner('Menggabungkan PDF duplikat…'):
+                            ordered = [new_cache.get(r['link']) or
+                                       st.session_state.dl_cache.get(r['link'])
+                                       for r in valid_rows]
+                            ordered = [x for x in ordered if x]
+                            merged  = merge_pdfs(ordered)
+                        if merged:
+                            st.success(f'✅ {len(ordered)} file digabung · {len(merged)//1024:,} KB')
+                            st.download_button('💾 Simpan PDF Duplikat', merged,
+                                               'duplikat_gabungan.pdf', 'application/pdf',
+                                               key='dl_merge_dup_result')
+                        else:
+                            st.error('❌ Gagal membuat PDF.')
+                    if fail_dl:
+                        with st.expander(f'⚠️ {len(fail_dl)} file gagal'):
+                            for f in fail_dl: st.markdown(f'• `{f}`')
+
+            # ── Tabel duplikat ──────────────────────────────────────────────
+            st.markdown('<div class="section-label">Detail Setiap Baris Duplikat</div>',
+                        unsafe_allow_html=True)
+
+            row_counter = 0
+            for (nopol, kuantum), grp in dup_df.groupby(['nopol', 'kuantum']):
+                if sd_dup.strip() and norm_nopol(sd_dup.strip()) not in nopol:
+                    continue
+
+                links_found = found[
+                    (found['nopol'] == nopol) & (found['kuantum'] == kuantum)
+                ]['surat_jalan'].tolist()
+                n_links = len(links_found)
+
+                st.markdown(f"""
+                <div class="dup-group-banner">
+                  <span style="font-size:1.2rem">🚛</span>
+                  <span class="nopol-pill dup">{nopol}</span>
+                  <span style="color:#64748b;font-size:0.82rem">Kuantum: <b>{int(kuantum):,}</b></span>
+                  <span style="background:#fee2e2;color:#991b1b;border-radius:6px;
+                  padding:2px 10px;font-size:0.75rem;font-weight:700">
+                  Muncul {len(grp)}× di File 1</span>
+                  <span style="background:#e0f2fe;color:#0369a1;border-radius:6px;
+                  padding:2px 10px;font-size:0.75rem;font-weight:700">
+                  {n_links} link di File 2</span>
+                </div>
+                """, unsafe_allow_html=True)
+
+                dh0,dh1,dh2,dh3,dh4,dh5 = st.columns([0.6, 1.8, 2, 1.8, 0.8, 1.8])
+                for col, lbl in zip([dh0,dh1,dh2,dh3,dh4,dh5],
+                                     ['Baris','NOPOL','Label File','Link GDrive','👁','⬇']):
+                    col.markdown(f'<span style="font-size:0.7rem;color:#94a3b8;font-weight:700">{lbl}</span>',
+                                 unsafe_allow_html=True)
+
+                for i_row, (_, drow) in enumerate(grp.iterrows(), start=1):
+                    baris_ke  = int(drow['baris_ke'])
+                    dup_label = f'_DUPLIKAT{baris_ke}'
+                    if n_links == 0:
+                        link = None
+                    elif i_row <= n_links:
+                        link = links_found[i_row - 1]
+                    else:
+                        link = links_found[0]
+                    fid = extract_fid(link) if link else None
+                    uid = f'dup_{re.sub(r"[^a-zA-Z0-9]","_",nopol)}_{kuantum}_{baris_ke}'
+
+                    cols = st.columns([0.6, 1.8, 2, 1.8, 0.8, 1.8])
+                    cols[0].markdown(f'<b>ke-{baris_ke}</b>')
+                    cols[1].markdown(f'<span class="nopol-pill dup">{nopol}</span>', unsafe_allow_html=True)
+                    cols[2].markdown(
+                        f'<code style="background:#ede9fe;color:#7c3aed;padding:3px 10px;'
+                        f'border-radius:6px;font-size:0.8rem">{dup_label}</code>',
+                        unsafe_allow_html=True)
+
+                    if link and fid:
+                        cols[3].markdown(f'[🔗 Buka Drive](https://drive.google.com/file/d/{fid}/view)')
+                    elif link:
+                        cols[3].markdown(f'[🔗 Buka]({link})')
+                    else:
+                        cols[3].markdown('<span style="color:#94a3b8">— Tidak ada link</span>', unsafe_allow_html=True)
+
+                    with cols[4]:
+                        if link:
+                            prev_grp_key = f'grp_{re.sub(r"[^a-zA-Z0-9]","_",nopol)}_{kuantum}'
+                            is_active    = (st.session_state.dup_prev_active.get(prev_grp_key) == baris_ke)
+                            if st.button('👁️ ✕' if is_active else '👁️', key=f'dprev_{uid}'):
+                                st.session_state.dup_prev_active[prev_grp_key] = (
+                                    None if is_active else baris_ke)
+                                st.rerun()
+
+                    with cols[5]:
+                        if link:
+                            cached = st.session_state.dl_cache.get(link)
+                            if cached:
+                                ext   = infer_extension(cached)
+                                fname = make_safe_filename(nopol, kuantum, row_counter, ext,
+                                                           total=n_dup_rows, dup_label=dup_label)
+                                mime  = 'application/pdf' if ext == 'pdf' else f'image/{ext}'
+                                st.download_button(f'⬇️ .{ext.upper()}', cached, fname, mime, key=f'ddl_{uid}')
+                            else:
+                                if st.button('⬇️ Unduh', key=f'ddlb_{uid}'):
+                                    with st.spinner(f'Mengunduh {nopol}{dup_label}…'):
+                                        ct = download_file(link)
+                                    if ct:
+                                        st.session_state.dl_cache[link] = ct
+                                        ext   = infer_extension(ct)
+                                        fname = make_safe_filename(nopol, kuantum, row_counter, ext,
+                                                                   total=n_dup_rows, dup_label=dup_label)
+                                        mime  = 'application/pdf' if ext == 'pdf' else f'image/{ext}'
+                                        st.download_button(f'💾 Simpan .{ext.upper()}', ct,
+                                                           fname, mime, key=f'ddls_{uid}')
+                                    else:
+                                        st.error('❌ Gagal mengunduh.')
+                        else:
+                            st.markdown('`—`')
+
+                    prev_grp_key = f'grp_{re.sub(r"[^a-zA-Z0-9]","_",nopol)}_{kuantum}'
+                    if link and st.session_state.dup_prev_active.get(prev_grp_key) == baris_ke:
+                        purl = to_preview(link)
+                        if purl:
+                            import streamlit.components.v1 as components
+                            st.markdown(f"""
+                            <div class="alert sky" style="margin-top:8px">
+                              <span class="alert-icon">👁️</span>
+                              <div>Preview — <b>{nopol}</b> ·
+                              <code style="color:#7c3aed">{dup_label}</code> ·
+                              <a href="{purl}" target="_blank" style="font-size:0.78rem">↗ Buka di tab baru</a>
+                              </div>
+                            </div>""", unsafe_allow_html=True)
+                            components.html(
+                                f'<iframe src="{purl}" width="100%" height="680" '
+                                f'style="border:1px solid #d8b4fe;border-radius:12px;background:#fff" '
+                                f'allow="autoplay"></iframe>', height=700)
+                        else:
+                            st.error('Link preview tidak valid.')
+
+                    row_counter += 1
+
+                st.markdown("")
+
+            # Export
+            st.markdown('<div class="section-label">Export</div>', unsafe_allow_html=True)
+            export_dup = dup_df[['nopol','kuantum','baris_ke','jumlah_duplikat']].copy()
+            export_dup.columns = ['NOPOL','Kuantum','Baris ke-','Total Duplikat']
+            export_dup['Label File'] = export_dup['Baris ke-'].apply(lambda x: f'_DUPLIKAT{int(x)}')
+            _de, _ = st.columns([2, 8])
+            with _de:
+                st.download_button('📥 Export CSV Duplikat',
+                                   export_dup.to_csv(index=False).encode('utf-8'),
+                                   'duplikat_file1.csv', 'text/csv', key='dl_dup')
+            st.dataframe(export_dup, use_container_width=True, hide_index=True)
 
     # ────────────────────────────────────────────────────────────────────────
     # TAB 2 — TIDAK MATCH KUANTUM
     # ────────────────────────────────────────────────────────────────────────
     with tab2:
         if nopol_diff is None or nopol_diff.empty:
-            st.markdown('<div class="success-box">🎉 <b>Tidak ada perbedaan kuantum!</b> '
-                        'Semua NOPOL yang ada di File 1 juga memiliki kuantum yang cocok di File 2.</div>',
-                        unsafe_allow_html=True)
+            st.markdown("""
+            <div class="empty-state">
+              <div class="icon">🎉</div>
+              <h3>Semua Kuantum Cocok!</h3>
+              <p>Tidak ada data dengan NOPOL yang sama tapi kuantum berbeda.</p>
+            </div>
+            """, unsafe_allow_html=True)
         else:
-            st.markdown(
-                f'<div class="warn-box">⚠️ <b>{len(nopol_diff)} data</b> — NOPOL ditemukan di File 2, '
-                f'namun kuantumnya tidak cocok dengan File 1.</div>',
-                unsafe_allow_html=True
-            )
-            sd = st.text_input('', placeholder='🔍 Filter berdasarkan NOPOL...',
-                               label_visibility='collapsed', key='sd')
+            st.markdown(f"""
+            <div class="alert warn">
+              <span class="alert-icon">⚠️</span>
+              <div><b>{len(nopol_diff)} data</b> — NOPOL ditemukan di File 2 namun nilai 
+              kuantumnya tidak cocok. Kemungkinan ada perbedaan satuan atau input data.</div>
+            </div>
+            """, unsafe_allow_html=True)
+
+            sd2c, sd2_ = st.columns([3, 7])
+            with sd2c:
+                sd = st.text_input('', placeholder='🔍 Filter NOPOL…',
+                                   label_visibility='collapsed', key='sd')
             dd = nopol_diff.copy()
             if sd.strip():
-                dd = dd[dd['NOPOL'].str.contains(re.escape(norm_nopol(sd)), na=False, case=False)
-                        ].reset_index(drop=True)
-            st.dataframe(dd, use_container_width=True, hide_index=True)
+                dd = dd[dd['NOPOL'].str.contains(
+                    re.escape(norm_nopol(sd)), na=False, case=False)].reset_index(drop=True)
+
+            st.dataframe(dd, use_container_width=True, hide_index=True,
+                         column_config={
+                             "Status": st.column_config.TextColumn(width="medium"),
+                             "Kuantum di File 2": st.column_config.TextColumn(width="large"),
+                         })
             _ca, _ = st.columns([2, 8])
             with _ca:
-                st.download_button('📥 Export CSV',
-                                   dd.to_csv(index=False).encode('utf-8'),
+                st.download_button('📥 Export CSV', dd.to_csv(index=False).encode('utf-8'),
                                    'tidak_match_kuantum.csv', 'text/csv', key='dl_a')
 
     # ────────────────────────────────────────────────────────────────────────
-    # TAB 3 — TIDAK MATCH NOPOL  ← FITUR BARU: SARAN NOPOL MIRIP
+    # TAB 3 — TIDAK MATCH NOPOL + SARAN FUZZY
     # ────────────────────────────────────────────────────────────────────────
     with tab3:
-        miss_items = [x for x in missing_detail if x['kategori'] in ('nopol_mirip', 'tidak_ada')]
-
+        miss_items = [x for x in missing_detail
+                      if x['kategori'] in ('nopol_mirip', 'tidak_ada')]
         if not miss_items:
-            st.markdown('<div class="success-box">🎉 <b>Semua NOPOL ditemukan di File 2!</b></div>',
-                        unsafe_allow_html=True)
+            st.markdown("""
+            <div class="empty-state">
+              <div class="icon">🎉</div>
+              <h3>Semua NOPOL Ditemukan!</h3>
+              <p>Tidak ada NOPOL dari File 1 yang tidak ada di File 2.</p>
+            </div>
+            """, unsafe_allow_html=True)
         else:
             n_mirip   = sum(1 for x in miss_items if x['kategori'] == 'nopol_mirip')
             n_tdk_ada = sum(1 for x in miss_items if x['kategori'] == 'tidak_ada')
 
-            st.markdown(
-                f'<div class="error-box">❌ <b>{len(miss_items)} data</b> — NOPOL sama sekali tidak '
-                f'ada di File 2.<br>'
-                f'🔍 <b>{n_mirip} data</b> memiliki <b>saran NOPOL mirip</b> dengan kuantum cocok. '
-                f'&nbsp;|&nbsp; 🚫 <b>{n_tdk_ada} data</b> tanpa saran sama sekali.</div>',
-                unsafe_allow_html=True
-            )
+            st.markdown(f"""
+            <div class="alert error">
+              <span class="alert-icon">❌</span>
+              <div><b>{len(miss_items)} NOPOL tidak ada di File 2.</b><br>
+              🔍 <b>{n_mirip} data</b> punya saran NOPOL mirip (kemungkinan salah ketik) &nbsp;·&nbsp;
+              🚫 <b>{n_tdk_ada} data</b> tanpa saran sama sekali</div>
+            </div>
+            """, unsafe_allow_html=True)
 
-            sm = st.text_input('', placeholder='🔍 Filter berdasarkan NOPOL...',
-                               label_visibility='collapsed', key='sm')
-
-            # Slider threshold kemiripan
-            min_sim = st.slider(
-                '🎚️ Threshold Kemiripan NOPOL (%)',
-                min_value=30, max_value=90, value=50, step=5,
-                help='Saran hanya ditampilkan jika kemiripan NOPOL ≥ nilai ini',
-                key='sim_slider'
-            )
+            fc1, fc2 = st.columns([3, 4])
+            with fc1:
+                sm = st.text_input('', placeholder='🔍 Filter NOPOL…',
+                                   label_visibility='collapsed', key='sm')
+            with fc2:
+                min_sim = st.slider('🎚️ Threshold Kemiripan (%)',
+                                    min_value=30, max_value=90, value=50, step=5,
+                                    key='sim_slider',
+                                    help="Semakin tinggi = saran lebih ketat/akurat")
 
             for item_idx, item in enumerate(miss_items):
                 nopol   = item['nopol']
                 kuantum = item['kuantum']
-
                 if sm.strip() and norm_nopol(sm.strip()) not in nopol:
                     continue
 
-                # Filter saran sesuai threshold
                 saran_filtered = [s for s in item['saran'] if s['similarity'] >= min_sim]
+                has_saran      = bool(saran_filtered)
 
-                # Header baris
-                badge_color = '#0c4a6e' if saran_filtered else '#7f1d1d'
-                badge_bg    = '#e0f2fe' if saran_filtered else '#fee2e2'
-                badge_text  = f'🔍 {len(saran_filtered)} saran' if saran_filtered else '🚫 Tidak ada saran'
-
-                st.markdown(
-                    f'<div style="background:#fff;border:1px solid #e2e8f0;border-radius:10px;'
-                    f'padding:14px 18px;margin:10px 0;">'
-                    f'<div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap;">'
-                    f'<span style="font-family:monospace;font-weight:700;color:#1e40af;'
-                    f'font-size:1rem">🚛 {nopol}</span>'
-                    f'<span style="color:#64748b;font-size:0.85rem">Kuantum: <b>{kuantum:,}</b></span>'
-                    f'<span style="background:{badge_bg};color:{badge_color};border-radius:6px;'
-                    f'padding:2px 10px;font-size:0.78rem;font-weight:600">{badge_text}</span>'
-                    f'</div></div>',
-                    unsafe_allow_html=True
-                )
+                st.markdown(f"""
+                <div style="background:#fff;border:1px solid {'#bfdbfe' if has_saran else '#fca5a5'};
+                border-left: 4px solid {'#3b82f6' if has_saran else '#ef4444'};
+                border-radius:10px;padding:14px 18px;margin:12px 0">
+                  <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap">
+                    <span class="nopol-pill">{nopol}</span>
+                    <span style="color:#64748b;font-size:0.82rem">Kuantum: <b>{kuantum:,}</b></span>
+                    <span style="background:{'#dbeafe' if has_saran else '#fee2e2'};
+                    color:{'#1d4ed8' if has_saran else '#991b1b'};border-radius:6px;
+                    padding:2px 10px;font-size:0.75rem;font-weight:700">
+                    {'🔍 ' + str(len(saran_filtered)) + ' saran ditemukan' if has_saran else '🚫 Tidak ada saran'}
+                    </span>
+                  </div>
+                </div>
+                """, unsafe_allow_html=True)
 
                 if saran_filtered:
-                    # Header kolom saran
-                    sh0, sh1, sh2, sh3, sh4 = st.columns([0.4, 2.5, 1.5, 1.5, 2])
-                    sh0.markdown('<small><b>#</b></small>', unsafe_allow_html=True)
-                    sh1.markdown('<small><b>NOPOL di File 2</b></small>', unsafe_allow_html=True)
-                    sh2.markdown('<small><b>Kemiripan</b></small>', unsafe_allow_html=True)
-                    sh3.markdown('<small><b>Kuantum</b></small>', unsafe_allow_html=True)
-                    sh4.markdown('<small><b>Aksi</b></small>', unsafe_allow_html=True)
+                    sh0,sh1,sh2,sh3,sh4 = st.columns([0.4, 2.5, 1.5, 1.3, 2.2])
+                    for col, lbl in zip([sh0,sh1,sh2,sh3,sh4],
+                                         ['#','NOPOL File 2','Kemiripan','Kuantum','Aksi']):
+                        col.markdown(f'<span style="font-size:0.7rem;color:#94a3b8;font-weight:700">{lbl}</span>',
+                                     unsafe_allow_html=True)
 
                     for s_idx, saran in enumerate(saran_filtered):
                         saran_key = f'saran_{item_idx}_{s_idx}'
-                        sc0, sc1, sc2, sc3, sc4 = st.columns([0.4, 2.5, 1.5, 1.5, 2])
+                        sc0,sc1,sc2,sc3,sc4 = st.columns([0.4, 2.5, 1.5, 1.3, 2.2])
 
-                        # Warna kemiripan
-                        sim = saran['similarity']
-                        if sim >= 80:
-                            sim_color = '#16a34a'
-                        elif sim >= 65:
-                            sim_color = '#b45309'
-                        else:
-                            sim_color = '#dc2626'
+                        sim       = saran['similarity']
+                        sim_class = 'sim-high' if sim >= 80 else ('sim-medium' if sim >= 65 else 'sim-low')
 
                         sc0.markdown(f'`{s_idx+1}`')
-                        sc1.markdown(f'`{saran["nopol_f2"]}`')
-                        sc2.markdown(
-                            f'<span style="color:{sim_color};font-weight:700">{sim}%</span>',
-                            unsafe_allow_html=True
-                        )
+                        sc1.markdown(f'<span class="nopol-pill">{saran["nopol_f2"]}</span>', unsafe_allow_html=True)
+                        sc2.markdown(f'<span class="sim-badge {sim_class}">{sim}%</span>', unsafe_allow_html=True)
                         sc3.markdown(f'{saran["kuantum"]:,}')
 
                         with sc4:
-                            col_prev, col_dl = st.columns(2)
-                            with col_prev:
-                                prev_key_active = st.session_state.saran_preview.get(f'item_{item_idx}')
-                                is_active_prev  = (prev_key_active == s_idx)
-                                btn_label       = '👁️ Tutup' if is_active_prev else '👁️ Lihat'
-                                if st.button(btn_label, key=f'sprev_{saran_key}'):
-                                    if is_active_prev:
-                                        st.session_state.saran_preview[f'item_{item_idx}'] = None
-                                    else:
-                                        st.session_state.saran_preview[f'item_{item_idx}'] = s_idx
+                            col_p, col_d = st.columns(2)
+                            with col_p:
+                                prev_active = st.session_state.saran_preview.get(f'item_{item_idx}')
+                                is_ap       = (prev_active == s_idx)
+                                if st.button('👁️ ✕' if is_ap else '👁️ Preview',
+                                             key=f'sprev_{saran_key}', use_container_width=True):
+                                    st.session_state.saran_preview[f'item_{item_idx}'] = (
+                                        None if is_ap else s_idx)
                                     st.rerun()
-
-                            with col_dl:
+                            with col_d:
                                 link_saran = saran['surat_jalan']
                                 cached_s   = st.session_state.dl_cache.get(link_saran)
                                 if cached_s:
                                     ext_s   = infer_extension(cached_s)
-                                    fname_s = make_safe_filename(saran['nopol_f2'], saran['kuantum'],
-                                                                 s_idx, ext_s)
+                                    fname_s = make_safe_filename(
+                                        saran['nopol_f2'], saran['kuantum'], s_idx, ext_s)
                                     mime_s  = 'application/pdf' if ext_s == 'pdf' else f'image/{ext_s}'
-                                    st.download_button(
-                                        f'⬇️ .{ext_s.upper()}', cached_s,
-                                        fname_s, mime_s,
-                                        key=f'sdl_cached_{saran_key}'
-                                    )
+                                    st.download_button(f'⬇️ .{ext_s.upper()}', cached_s,
+                                                       fname_s, mime_s,
+                                                       key=f'sdl_cached_{saran_key}',
+                                                       use_container_width=True)
                                 else:
-                                    if st.button('⬇️ Download', key=f'sdl_{saran_key}'):
-                                        with st.spinner(f'Mengunduh {saran["nopol_f2"]}...'):
+                                    if st.button('⬇️ Unduh', key=f'sdl_{saran_key}',
+                                                 use_container_width=True):
+                                        with st.spinner(f'Mengunduh…'):
                                             ct_s = download_file(link_saran)
                                         if ct_s:
                                             st.session_state.dl_cache[link_saran] = ct_s
@@ -1180,61 +1739,45 @@ if st.session_state.result_df is not None:
                                             fname_s = make_safe_filename(
                                                 saran['nopol_f2'], saran['kuantum'], s_idx, ext_s)
                                             mime_s  = 'application/pdf' if ext_s == 'pdf' else f'image/{ext_s}'
-                                            st.download_button(
-                                                f'💾 Simpan .{ext_s.upper()}', ct_s,
-                                                fname_s, mime_s,
-                                                key=f'sdl_save_{saran_key}'
-                                            )
-                                            st.success(f'✅ {fname_s} siap disimpan!')
+                                            st.download_button(f'💾 Simpan .{ext_s.upper()}', ct_s,
+                                                               fname_s, mime_s,
+                                                               key=f'sdl_save_{saran_key}',
+                                                               use_container_width=True)
                                         else:
-                                            st.error('❌ Gagal mengunduh. Cek link GDrive.')
+                                            st.error('❌ Gagal.')
 
-                        # Preview surat jalan saran
-                        active_s_idx = st.session_state.saran_preview.get(f'item_{item_idx}')
-                        if active_s_idx == s_idx:
+                        # Preview inline
+                        if st.session_state.saran_preview.get(f'item_{item_idx}') == s_idx:
                             purl_s = to_preview(saran['surat_jalan'])
                             if purl_s:
                                 import streamlit.components.v1 as components
-                                st.markdown(
-                                    f'<div class="suggestion-box">👁️ <b>Preview Surat Jalan</b> — '
-                                    f'NOPOL: <code>{saran["nopol_f2"]}</code> | '
-                                    f'Kuantum: <b>{saran["kuantum"]:,}</b> | '
-                                    f'Kemiripan dengan <code>{nopol}</code>: '
-                                    f'<b style="color:{sim_color}">{sim}%</b></div>',
-                                    unsafe_allow_html=True
-                                )
+                                sim_class_c = '#16a34a' if sim >= 80 else ('#b45309' if sim >= 65 else '#dc2626')
+                                st.markdown(f"""
+                                <div class="alert sky" style="margin:8px 0">
+                                  <span class="alert-icon">👁️</span>
+                                  <div>Preview — NOPOL: <b>{saran['nopol_f2']}</b> · 
+                                  Kemiripan: <b style="color:{sim_class_c}">{sim}%</b> ·
+                                  <a href="{purl_s}" target="_blank" style="font-size:0.78rem">↗ Buka di tab baru</a>
+                                  </div>
+                                </div>""", unsafe_allow_html=True)
                                 components.html(
                                     f'<iframe src="{purl_s}" width="100%" height="680" '
-                                    f'style="border:1px solid #7dd3fc;border-radius:10px;'
-                                    f'background:#fff" allow="autoplay"></iframe>',
-                                    height=700
-                                )
-                                st.caption(f'Preview kosong? → [buka di tab baru]({purl_s})')
+                                    f'style="border:1px solid #7dd3fc;border-radius:12px;background:#fff" '
+                                    f'allow="autoplay"></iframe>', height=700)
                             else:
                                 st.error('Link preview tidak valid.')
-
                 else:
-                    if item['kategori'] == 'tidak_ada':
-                        st.markdown(
-                            '<div style="padding:8px 18px;color:#94a3b8;font-size:0.82rem">'
-                            '🚫 Tidak ada NOPOL di File 2 yang memiliki kuantum sama dan kemiripan '
-                            'cukup. Kemungkinan data benar-benar tidak ada di database.</div>',
-                            unsafe_allow_html=True
-                        )
-                    else:
-                        st.markdown(
-                            f'<div style="padding:8px 18px;color:#94a3b8;font-size:0.82rem">'
-                            f'🔽 Kurangi threshold kemiripan (saat ini {min_sim}%) untuk melihat '
-                            f'lebih banyak saran.</div>',
-                            unsafe_allow_html=True
-                        )
+                    msg = ('🚫 Tidak ada NOPOL di File 2 dengan kuantum sama dan kemiripan cukup.'
+                           if item['kategori'] == 'tidak_ada'
+                           else f'🔽 Kurangi threshold (saat ini {min_sim}%) untuk lebih banyak saran.')
+                    st.caption(f'  {msg}')
 
             # Export
-            st.markdown('<div class="section-label">Export Tabel</div>', unsafe_allow_html=True)
+            st.markdown('<div class="section-label">Export</div>', unsafe_allow_html=True)
             if nopol_miss is not None and not nopol_miss.empty:
                 _cb, _ = st.columns([2, 8])
                 with _cb:
-                    st.download_button('📥 Export CSV',
+                    st.download_button('📥 Export CSV NOPOL Tidak Ada',
                                        nopol_miss.to_csv(index=False).encode('utf-8'),
                                        'tidak_match_nopol.csv', 'text/csv', key='dl_b')
                 st.dataframe(nopol_miss, use_container_width=True, hide_index=True)
@@ -1244,16 +1787,31 @@ if st.session_state.result_df is not None:
     # ────────────────────────────────────────────────────────────────────────
     with tab4:
         if missing.empty:
-            st.markdown('<div class="success-box">🎉 <b>Semua data berhasil dicocokkan!</b> '
-                        'Tidak ada data yang tidak match.</div>',
-                        unsafe_allow_html=True)
+            st.markdown("""
+            <div class="empty-state">
+              <div class="icon">🏆</div>
+              <h3>Sempurna! Semua Data Match!</h3>
+              <p>Setiap baris di File 1 berhasil dicocokkan dengan data di File 2.</p>
+            </div>
+            """, unsafe_allow_html=True)
         else:
-            st.markdown(
-                f'<div class="error-box">🔴 <b>{n_all_miss} total kombinasi tidak match</b> '
-                f'(gabungan dari kuantum beda + NOPOL tidak ada).</div>',
-                unsafe_allow_html=True
-            )
-            all_m = missing.rename(columns={'nopol': 'NOPOL', 'kuantum': 'Kuantum File 1'}).copy()
+            st.markdown(f"""
+            <div class="alert error">
+              <span class="alert-icon">🔴</span>
+              <div><b>{n_all_miss} total kombinasi tidak match</b> 
+              (NOPOL tidak ada + kuantum beda).</div>
+            </div>
+            """, unsafe_allow_html=True)
+
+            # Mini stat summary
+            t4c1, t4c2, t4c3, t4c4 = st.columns(4)
+            t4c1.metric("Total Tidak Match", n_all_miss)
+            t4c2.metric("⚠️ Kuantum Beda",   n_diff_k)
+            t4c3.metric("❌ NOPOL Tidak Ada", n_miss_nopol)
+            t4c4.metric("🔍 Ada Saran Mirip", n_nopol_mirip)
+
+            all_m = missing.rename(
+                columns={'nopol':'NOPOL','kuantum':'Kuantum File 1'}).copy()
             all_m['Kuantum File 1'] = all_m['Kuantum File 1'].astype(int)
 
             def get_keterangan(row):
@@ -1263,33 +1821,49 @@ if st.session_state.result_df is not None:
                     ks = sorted(f2m['kuantum'].dropna().astype(int).unique().tolist())
                     d  = ', '.join(map(str, ks[:5])) + (f' (+{len(ks)-5} lagi)' if len(ks) > 5 else '')
                     return f'⚠️ Kuantum beda (di File 2: {d})'
-                # Cek apakah ada saran nopol mirip
                 saran = find_nopol_suggestions(nopol, int(row['Kuantum File 1']), df2_all, top_n=3)
                 if saran:
                     top = saran[0]
-                    return f'🔍 NOPOL tidak ada — Saran mirip: {top["nopol_f2"]} ({top["similarity"]}%)'
+                    return f'🔍 Saran: {top["nopol_f2"]} ({top["similarity"]}%)'
                 return '❌ NOPOL tidak ada di File 2'
 
-            all_m['Keterangan'] = all_m.apply(get_keterangan, axis=1)
+            with st.spinner('Menganalisis penyebab ketidakcocokan…'):
+                all_m['Keterangan'] = all_m.apply(get_keterangan, axis=1)
 
-            sa = st.text_input('', placeholder='🔍 Filter...',
-                               label_visibility='collapsed', key='sa')
+            sa4c, _ = st.columns([3, 7])
+            with sa4c:
+                sa = st.text_input('', placeholder='🔍 Filter NOPOL…',
+                                   label_visibility='collapsed', key='sa')
             if sa.strip():
                 all_m = all_m[all_m['NOPOL'].str.contains(
                     re.escape(norm_nopol(sa)), na=False, case=False)].reset_index(drop=True)
 
-            st.dataframe(all_m, use_container_width=True, hide_index=True)
+            st.dataframe(all_m, use_container_width=True, hide_index=True,
+                         column_config={
+                             "Keterangan": st.column_config.TextColumn(width="large"),
+                         })
 
-            col_exp, col_dl, _ = st.columns([1.5, 1.5, 7])
-            with col_exp:
-                with st.expander('📊 Ringkasan'):
-                    st.markdown(f"""
-                    - ⚠️ **Kuantum beda:** {n_diff_k} data
-                    - ❌ **NOPOL tidak ada:** {n_miss_nopol} data
-                    - 🔍 **Ada saran NOPOL mirip:** {n_nopol_mirip} data
-                    - 🔴 **Total tidak match:** {n_all_miss} data
-                    """)
-            with col_dl:
-                st.download_button('📥 Export CSV',
+            _cde, _ = st.columns([2, 8])
+            with _cde:
+                st.download_button('📥 Export CSV Semua Tidak Match',
                                    all_m.to_csv(index=False).encode('utf-8'),
                                    'semua_tidak_match.csv', 'text/csv', key='dl_c')
+
+# ══════════════════════════════════════════════════════════════════════════════
+# EMPTY STATE — Belum upload
+# ══════════════════════════════════════════════════════════════════════════════
+elif not st.session_state.processed:
+    st.markdown("""
+    <div style="text-align:center;padding:48px 24px;margin-top:16px">
+      <div style="font-size:3.5rem;margin-bottom:16px">📂</div>
+      <h3 style="color:#374151;font-size:1.2rem;font-weight:700;margin-bottom:8px">
+        Upload File untuk Memulai
+      </h3>
+      <p style="color:#94a3b8;font-size:0.875rem;line-height:1.7;max-width:420px;margin:0 auto">
+        Upload <b>File 1</b> (daftar target) dan <b>File 2</b> (database surat jalan) di atas,
+        lalu klik <b>⚙️ Proses & Cocokkan Data</b> untuk memulai.
+        <br><br>
+        Butuh bantuan? Lihat panduan di sidebar kiri.
+      </p>
+    </div>
+    """, unsafe_allow_html=True)
