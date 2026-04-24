@@ -799,7 +799,7 @@ st.markdown("""
 st.markdown("""
 <div class="hero">
   <div class="hero-sub">Logistics · Automation · Document</div>
-  <div class="hero-title">Download Surat Jalan in Bulk</div>
+  <div class="hero-title">Download Surat Jalan in Bulk by Twantwryyy</div>
   <div class="hero-desc">Cocokkan NOPOL + Kuantum dari dua file, unduh ribuan dokumen sekaligus. Mendukung link hyperlink Excel, ZIP, PDF gabungan, deteksi duplikat &amp; saran NOPOL mirip.</div>
 </div>
 """, unsafe_allow_html=True)
