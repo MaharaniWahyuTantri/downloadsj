@@ -32,7 +32,7 @@ st.markdown("""
   --text3:     #9c9790;
   --orange:    #e55a00;
   --orange-lt: #2F578A;
-  --orange-md: #ffd4b0;
+  --orange-md: #2F578A;
   --orange-glow: rgba(229,90,0,.12);
   --green:     #157a3c;
   --green-lt:  #edfaf3;
