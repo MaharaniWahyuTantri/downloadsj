@@ -33,15 +33,19 @@ st.markdown("""
   --orange:    #e55a00;
   --orange-lt: #fff4ec;
   --orange-md: #ffd4b0;
+  --orange-glow: rgba(229,90,0,.12);
   --green:     #157a3c;
   --green-lt:  #edfaf3;
   --green-md:  #a8edca;
+  --green-pale:#d1fae5;
   --red:       #c41c1c;
   --red-lt:    #fff0f0;
   --amber:     #b45309;
   --amber-lt:  #fffbeb;
+  --amber-pale:#fef3c7;
   --blue:      #1d4ed8;
   --blue-lt:   #eff6ff;
+  --blue-pale: #dbeafe;
   --violet:    #6d28d9;
   --violet-lt: #f5f3ff;
   --sky:       #0369a1;
@@ -52,6 +56,7 @@ st.markdown("""
   --radius:    12px;
   --font: 'Plus Jakarta Sans', sans-serif;
   --mono: 'JetBrains Mono', monospace;
+  --font-head: 'Plus Jakarta Sans', sans-serif;
 }
 
 *,*::before,*::after{box-sizing:border-box;}
@@ -154,6 +159,27 @@ html,body,[class*="css"]{
 .sec-line{flex:1;height:1.5px;background:var(--border);}
 
 /* ── UPLOAD CARDS ── */
+.ucard{
+  background:var(--surface);border:1.5px solid var(--border);
+  border-radius:var(--radius);padding:clamp(14px,2.5vw,20px);
+  box-shadow:var(--shadow-sm);transition:border-color .2s,box-shadow .2s;
+}
+.ucard:hover{border-color:var(--orange-md);box-shadow:var(--shadow);}
+.ucard.ready{border-color:#6ee7b7;background:var(--green-lt);}
+.ucard-head{display:flex;align-items:flex-start;gap:10px;margin-bottom:10px;}
+.ucard-icon{
+  width:40px;height:40px;border-radius:9px;flex-shrink:0;
+  display:flex;align-items:center;justify-content:center;font-size:1.05rem;
+}
+.ucard-icon-a{background:var(--orange-lt);border:1.5px solid var(--orange-md);}
+.ucard-icon-b{background:var(--green-lt);border:1.5px solid var(--green-md);}
+.ucard-ttl{font-size:.88rem;font-weight:700;color:var(--text);}
+.ucard-sub{font-size:.7rem;color:var(--text3);margin-top:2px;line-height:1.4;}
+.tag-row{display:flex;flex-wrap:wrap;gap:4px;margin-top:6px;}
+.tag-r{font-size:.63rem;font-weight:700;padding:2px 7px;border-radius:4px;font-family:var(--mono);
+  background:var(--orange-lt);color:var(--orange);border:1px solid var(--orange-md);}
+
+/* legacy upload-card aliases */
 .upload-card{
   background:var(--surface);border:1.5px solid var(--border);
   border-radius:var(--radius);padding:clamp(14px,2.5vw,22px);
@@ -162,10 +188,7 @@ html,body,[class*="css"]{
 .upload-card:hover{border-color:var(--orange-md);box-shadow:var(--shadow);}
 .upload-card.ready{border-color:#6ee7b7;background:var(--green-lt);}
 .uc-header{display:flex;align-items:flex-start;gap:10px;margin-bottom:12px;}
-.uc-icon{
-  width:40px;height:40px;border-radius:9px;flex-shrink:0;
-  display:flex;align-items:center;justify-content:center;font-size:1.05rem;
-}
+.uc-icon{width:40px;height:40px;border-radius:9px;flex-shrink:0;display:flex;align-items:center;justify-content:center;font-size:1.05rem;}
 .uc-icon-a{background:var(--orange-lt);border:1.5px solid var(--orange-md);}
 .uc-icon-b{background:var(--green-lt);border:1.5px solid var(--green-md);}
 .uc-ttl{font-size:.88rem;font-weight:700;color:var(--text);}
@@ -180,6 +203,38 @@ html,body,[class*="css"]{
   border-radius:7px;padding:6px 11px;margin-top:8px;
   font-size:.76rem;color:var(--green);font-weight:600;
 }
+
+/* ── TEXTAREA (paste mode) ── */
+.stTextArea > div > div > textarea {
+  background: var(--surface) !important;
+  border: 2px solid var(--border) !important;
+  border-radius: 10px !important;
+  color: var(--text) !important;
+  font-family: var(--mono) !important;
+  font-size: .8rem !important;
+  padding: 10px 13px !important;
+  transition: all .18s !important;
+  box-shadow: var(--shadow-sm) !important;
+  line-height: 1.7 !important;
+  resize: vertical !important;
+}
+.stTextArea > div > div > textarea:focus {
+  border-color: var(--orange) !important;
+  box-shadow: 0 0 0 3px var(--orange-glow) !important;
+}
+.paste-col-lbl {
+  font-size: .67rem; font-weight: 800; text-transform: uppercase;
+  letter-spacing: 1.4px; color: var(--text3); font-family: var(--font-head);
+  margin-bottom: 5px; display: flex; align-items: center; gap: 5px;
+}
+.paste-preview-pill {
+  background: var(--blue-pale); border: 1.5px solid #93c5fd;
+  border-radius: 8px; padding: 6px 12px; font-size: .74rem;
+  color: var(--blue); font-weight: 700; margin-top: 8px;
+  display: flex; align-items: center; gap: 8px;
+}
+.paste-preview-pill.ok   { background: var(--green-lt); border-color: var(--green-pale); color: var(--green); }
+.paste-preview-pill.warn { background: var(--amber-lt); border-color: var(--amber-pale); color: var(--amber); }
 
 /* ── BUTTONS ── */
 .stButton>button{
@@ -536,25 +591,16 @@ def merge_pdfs(content_list):
 # FILE READING — HYPERLINK-AWARE
 # ══════════════════════════════════════════════════════════════════════════════
 def read_file(f):
-    """Read uploaded file; returns a plain DataFrame."""
     if f.name.lower().endswith('.csv'):
         return pd.read_csv(f)
     return pd.read_excel(f)
 
 def read_xlsx_with_hyperlinks(f):
-    """
-    Read an xlsx file and extract hyperlinks from cells that have display text
-    but store the actual URL as a hyperlink (e.g. cell shows 'Link' but href is
-    a Google Drive URL).  Returns a DataFrame where the link column contains
-    the resolved URL instead of the display text.
-    """
     try:
         from openpyxl import load_workbook
         f.seek(0)
         wb = load_workbook(f, data_only=True)
         ws = wb.active
-
-        # Build a dict: (row_idx, col_idx) -> hyperlink target
         hyperlinks = {}
         for row in ws.iter_rows():
             for cell in row:
@@ -562,33 +608,21 @@ def read_xlsx_with_hyperlinks(f):
                     target = cell.hyperlink if isinstance(cell.hyperlink, str) else cell.hyperlink.target
                     if target:
                         hyperlinks[(cell.row, cell.column)] = target
-
         if not hyperlinks:
-            # No hyperlinks found, return plain read
             f.seek(0)
             return pd.read_excel(f)
-
-        # Read with pandas normally
         f.seek(0)
         df = pd.read_excel(f)
-
-        # Figure out which column indices (1-based) have hyperlinks
-        # Map openpyxl col index to pandas col index (they match after skipping header row)
-        # openpyxl row 1 = header, row 2 = first data row = pandas index 0
         for (row, col), target in hyperlinks.items():
-            if row < 2: continue  # skip header row
-            pandas_row = row - 2  # openpyxl row 2 → pandas index 0
-            pandas_col = col - 1  # openpyxl col 1 → pandas col 0
+            if row < 2: continue
+            pandas_row = row - 2
+            pandas_col = col - 1
             if pandas_row < len(df) and pandas_col < len(df.columns):
                 current_val = str(df.iloc[pandas_row, pandas_col]).strip()
-                # Replace cell value if it's a display-text placeholder (not already a URL)
                 if not current_val.startswith('http'):
                     df.iloc[pandas_row, pandas_col] = target
-
         return df
-
-    except Exception as e:
-        # Fallback: plain read
+    except Exception:
         f.seek(0)
         return pd.read_excel(f)
 
@@ -607,6 +641,24 @@ def load_file1(df):
     out['kuantum'] = df[kc].apply(norm_kuantum)
     out = out[(out['nopol'] != '') & out['nopol'].notna()].dropna(subset=['kuantum'])
     return out[out['kuantum'] > 0].reset_index(drop=True)
+
+def parse_paste_to_df1(nopol_text: str, kuantum_text: str) -> pd.DataFrame:
+    """Parse two pasted column texts into a df1-compatible DataFrame."""
+    def _is_hdr_np(v): return bool(re.match(r'^(nopol|no\s*pol|nomor|plate)', v, re.I))
+    def _is_hdr_kq(v): return bool(re.match(r'^(kuantum|quantum|tonase|qty|jumlah|volume|berat)', v, re.I))
+    nopol_lines   = [l.strip() for l in nopol_text.strip().splitlines()   if l.strip()]
+    kuantum_lines = [l.strip() for l in kuantum_text.strip().splitlines() if l.strip()]
+    if nopol_lines   and _is_hdr_np(nopol_lines[0]):   nopol_lines   = nopol_lines[1:]
+    if kuantum_lines and _is_hdr_kq(kuantum_lines[0]): kuantum_lines = kuantum_lines[1:]
+    n = min(len(nopol_lines), len(kuantum_lines))
+    if n == 0: return pd.DataFrame()
+    rows = []
+    for i in range(n):
+        np_val = norm_nopol(nopol_lines[i])
+        kq_val = norm_kuantum(kuantum_lines[i])
+        if np_val and kq_val and kq_val > 0:
+            rows.append({'nopol': np_val, 'kuantum': kq_val})
+    return pd.DataFrame(rows).reset_index(drop=True) if rows else pd.DataFrame()
 
 def load_file2(raw_df):
     df = raw_df.copy()
@@ -746,6 +798,11 @@ if st.session_state.saran_preview is None: st.session_state.saran_preview = {}
 if st.session_state.dup_prev_active is None: st.session_state.dup_prev_active = {}
 if st.session_state.processed is None: st.session_state.processed = False
 
+# ── Paste mode session state ──
+if 'f1_input_mode' not in st.session_state: st.session_state.f1_input_mode = 'upload'
+if 'paste_nopol_val' not in st.session_state: st.session_state.paste_nopol_val = ''
+if 'paste_kuantum_val' not in st.session_state: st.session_state.paste_kuantum_val = ''
+
 # ══════════════════════════════════════════════════════════════════════════════
 # SIDEBAR
 # ══════════════════════════════════════════════════════════════════════════════
@@ -757,9 +814,9 @@ with st.sidebar:
     </div>''', unsafe_allow_html=True)
     st.divider()
     with st.expander("📋 Cara Penggunaan", expanded=True):
-        st.markdown("1. **Upload File 1** — Daftar target (NOPOL + Kuantum)\n2. **Upload File 2** — Database link Google Drive\n3. Klik **⚙️ Proses Data**\n4. Download **ZIP** atau **PDF Gabungan**")
+        st.markdown("1. **Upload File 1** atau **Paste Data** — Daftar target (NOPOL + Kuantum)\n2. **Upload File 2** — Database link Google Drive\n3. Klik **⚙️ Proses Data**\n4. Download **ZIP** atau **PDF Gabungan**")
     with st.expander("📂 Format File"):
-        st.markdown("**File 1:** `NOPOL` + `KUANTUM`\n\n**File 2:** `NOPOL` + `KUANTUM` + `Link GDrive`\n\n✅ Mendukung **hyperlink** (cell berisi teks seperti 'Link' dengan URL tersembunyi)\n\nFormat: `.xlsx`, `.xls`, `.csv`")
+        st.markdown("**File 1:** `NOPOL` + `KUANTUM`\n\n**File 2:** `NOPOL` + `KUANTUM` + `Link GDrive`\n\n✅ Mendukung **hyperlink** (cell berisi teks seperti 'Link' dengan URL tersembunyi)\n\nFormat: `.xlsx`, `.xls`, `.csv`\n\n📋 **Paste Mode:** Salin kolom NOPOL & KUANTUM langsung dari Excel/Sheets.")
     with st.expander("❓ FAQ"):
         st.markdown("**Link di Excel berupa hyperlink?** Otomatis terdeteksi!\n\n**File gagal?** Mungkin private/expired.\n\n**Duplikat?** NOPOL+Kuantum muncul >1x.\n\n**Saran NOPOL?** Fuzzy matching untuk salah ketik.")
     st.divider()
@@ -820,32 +877,148 @@ def render_steps(step):
 render_steps(3 if st.session_state.processed else 1)
 
 # ══════════════════════════════════════════════════════════════════════════════
-# UPLOAD
+# UPLOAD SECTION
 # ══════════════════════════════════════════════════════════════════════════════
 st.markdown('<div class="sec-hdr"><span class="sec-badge">01</span><span class="sec-title">Upload File</span><span class="sec-line"></span></div>', unsafe_allow_html=True)
 
 col_f1, col_f2 = st.columns(2, gap="medium")
-with col_f1:
-    ready1 = "ready" if st.session_state.get("f1") else ""
-    st.markdown(f'<div class="upload-card {ready1}"><div class="uc-header"><div class="uc-icon uc-icon-a">📋</div><div><div class="uc-ttl">File 1 — Daftar Target</div><div class="uc-sub">Data yang ingin dicocokkan &amp; didownload</div></div></div><div class="tag-wrap"><span class="tag tag-req">NOPOL *</span><span class="tag tag-req">KUANTUM *</span><span class="tag tag-opt">nomor polisi</span><span class="tag tag-opt">tonase</span></div></div>', unsafe_allow_html=True)
-    file1 = st.file_uploader("File 1", type=['csv','xlsx','xls'], key='f1', label_visibility='collapsed')
-    if file1: st.markdown(f'<div class="file-pill">✅ <b>{file1.name}</b> — {file1.size/1024:.1f} KB</div>', unsafe_allow_html=True)
 
+# ── COL F1: Upload OR Paste ───────────────────────────────────────────────────
+with col_f1:
+    _mode = st.session_state.f1_input_mode
+    _pnv  = st.session_state.paste_nopol_val
+    _pkv  = st.session_state.paste_kuantum_val
+
+    _paste_ready  = (_mode == 'paste'  and bool(_pnv.strip()) and bool(_pkv.strip()))
+    _upload_ready = (_mode == 'upload' and st.session_state.get('f1_widget') is not None)
+    ready1 = "ready" if (_paste_ready or _upload_ready) else ""
+
+    st.markdown(f'''<div class="ucard ucard-a {ready1}">
+      <div class="ucard-head">
+        <div class="ucard-icon ucard-icon-a">📋</div>
+        <div>
+          <div class="ucard-ttl">File 1 — Daftar Target</div>
+          <div class="ucard-sub">Data yang ingin dicocokkan &amp; didownload</div>
+        </div>
+      </div>
+      <div class="tag-row"><span class="tag-r">NOPOL *</span><span class="tag-r">KUANTUM *</span></div>
+    </div>''', unsafe_allow_html=True)
+
+    st.markdown('<div style="height:8px"></div>', unsafe_allow_html=True)
+
+    # Mode toggle
+    tc1, tc2 = st.columns(2)
+    with tc1:
+        if st.button(
+            ('✅ ' if _mode == 'upload' else '') + '📁 Upload File',
+            key='toggle_upload', use_container_width=True,
+            type='primary' if _mode == 'upload' else 'secondary'
+        ):
+            st.session_state.f1_input_mode = 'upload'; st.rerun()
+    with tc2:
+        if st.button(
+            ('✅ ' if _mode == 'paste' else '') + '📋 Paste Data',
+            key='toggle_paste', use_container_width=True,
+            type='primary' if _mode == 'paste' else 'secondary'
+        ):
+            st.session_state.f1_input_mode = 'paste'; st.rerun()
+
+    st.markdown('<div style="height:6px"></div>', unsafe_allow_html=True)
+
+    # ── Upload mode ──
+    if st.session_state.f1_input_mode == 'upload':
+        file1 = st.file_uploader(
+            "File 1", type=['csv', 'xlsx', 'xls'],
+            key='f1_widget', label_visibility='collapsed'
+        )
+        if file1:
+            st.markdown(f'<div class="file-pill">✅ &nbsp;<b>{file1.name}</b> — {file1.size/1024:.1f} KB</div>',
+                        unsafe_allow_html=True)
+        else:
+            st.markdown(
+                '<div class="alert a-info" style="margin-top:6px"><span class="alert-ico">💡</span>'
+                '<div style="font-size:.79rem">Upload file <code>.xlsx</code>, <code>.xls</code>, atau <code>.csv</code>'
+                ' berisi NOPOL &amp; Kuantum</div></div>', unsafe_allow_html=True)
+    else:
+        # ── Paste mode ──
+        st.markdown(
+            '<div class="alert a-orange" style="margin-bottom:8px">'
+            '<span class="alert-ico">📋</span>'
+            '<div style="font-size:.79rem"><b>Cara paste:</b> Buka Excel/Sheets → salin kolom NOPOL → '
+            'paste di kotak kiri. Salin kolom KUANTUM → paste di kotak kanan. '
+            'Header boleh ikut, akan diabaikan otomatis.</div></div>',
+            unsafe_allow_html=True)
+
+        pc1, pc2 = st.columns(2)
+        with pc1:
+            st.markdown('<div class="paste-col-lbl">🚗 NOPOL</div>', unsafe_allow_html=True)
+            nopol_raw = st.text_area(
+                "NOPOL", placeholder="B 1234 ABC\nD 5678 DEF\n...",
+                height=160, key='paste_nopol_input', label_visibility='collapsed'
+            )
+            st.session_state.paste_nopol_val = nopol_raw
+        with pc2:
+            st.markdown('<div class="paste-col-lbl">⚖️ KUANTUM</div>', unsafe_allow_html=True)
+            kuantum_raw = st.text_area(
+                "KUANTUM", placeholder="25\n30\n40\n...",
+                height=160, key='paste_kuantum_input', label_visibility='collapsed'
+            )
+            st.session_state.paste_kuantum_val = kuantum_raw
+
+        # Live row-count validation
+        if nopol_raw.strip() or kuantum_raw.strip():
+            def _is_hdr_np(v): return bool(re.match(r'^(nopol|no\s*pol|nomor|plate)', v, re.I))
+            def _is_hdr_kq(v): return bool(re.match(r'^(kuantum|quantum|tonase|qty|jumlah|volume|berat)', v, re.I))
+            np_lines = [l.strip() for l in nopol_raw.strip().splitlines() if l.strip()]
+            kq_lines = [l.strip() for l in kuantum_raw.strip().splitlines() if l.strip()]
+            np_d = np_lines[1:] if np_lines and _is_hdr_np(np_lines[0]) else np_lines
+            kq_d = kq_lines[1:] if kq_lines and _is_hdr_kq(kq_lines[0]) else kq_lines
+            n_np, n_kq = len(np_d), len(kq_d)
+            if n_np > 0 and n_kq > 0:
+                if n_np == n_kq:
+                    st.markdown(
+                        f'<div class="paste-preview-pill ok">✅ &nbsp;<b>{n_np} baris</b> siap diproses</div>',
+                        unsafe_allow_html=True)
+                else:
+                    st.markdown(
+                        f'<div class="paste-preview-pill warn">⚠️ &nbsp;NOPOL: <b>{n_np}</b> · '
+                        f'Kuantum: <b>{n_kq}</b> baris (akan diambil minimum)</div>',
+                        unsafe_allow_html=True)
+        # expose file1 as None when in paste mode
+        file1 = None
+
+# ── COL F2: Upload ────────────────────────────────────────────────────────────
 with col_f2:
     ready2 = "ready" if st.session_state.get("f2") else ""
     st.markdown(f'<div class="upload-card {ready2}"><div class="uc-header"><div class="uc-icon uc-icon-b">🗄️</div><div><div class="uc-ttl">File 2 — Database Surat Jalan</div><div class="uc-sub">Berisi link Google Drive (URL atau hyperlink)</div></div></div><div class="tag-wrap"><span class="tag tag-req">NOPOL *</span><span class="tag tag-req">KUANTUM *</span><span class="tag tag-req">Link GDrive *</span><span class="tag tag-opt">hyperlink ✓</span></div></div>', unsafe_allow_html=True)
     file2 = st.file_uploader("File 2", type=['csv','xlsx','xls'], key='f2', label_visibility='collapsed')
     if file2: st.markdown(f'<div class="file-pill">✅ <b>{file2.name}</b> — {file2.size/1024:.1f} KB</div>', unsafe_allow_html=True)
 
+# ── Readiness check ──────────────────────────────────────────────────────────
 st.markdown("")
-both = file1 is not None and file2 is not None
+_current_mode    = st.session_state.f1_input_mode
+_paste_nopol_val = st.session_state.paste_nopol_val
+_paste_kq_val    = st.session_state.paste_kuantum_val
+_f1_widget       = st.session_state.get('f1_widget')
+
+if _current_mode == 'upload':
+    f1_ready = _f1_widget is not None
+else:
+    f1_ready = bool(_paste_nopol_val.strip()) and bool(_paste_kq_val.strip())
+
+both = f1_ready and (file2 is not None)
+
 bc1, bc2 = st.columns([2, 10])
 with bc1:
     process = st.button('⚙️ Proses & Cocokkan', use_container_width=True, disabled=not both, type="primary")
 with bc2:
     if not both:
-        missing_f = [f for f in [("File 1" if not file1 else None), ("File 2" if not file2 else None)] if f]
-        st.markdown(f'<div style="padding:10px 0;font-size:.8rem;color:#9c9790">Upload <b style="color:#e55a00">{" & ".join(missing_f)}</b> untuk melanjutkan</div>', unsafe_allow_html=True)
+        missing_parts = []
+        if not f1_ready:
+            if _current_mode == 'upload': missing_parts.append("File 1 (upload)")
+            else: missing_parts.append("File 1 (paste NOPOL &amp; Kuantum)")
+        if file2 is None: missing_parts.append("File 2")
+        st.markdown(f'<div style="padding:10px 0;font-size:.8rem;color:#9c9790">Upload/paste <b style="color:#e55a00">{" &amp; ".join(missing_parts)}</b> untuk melanjutkan</div>', unsafe_allow_html=True)
     else:
         st.markdown('<div style="padding:10px 0;font-size:.8rem;color:#157a3c;font-weight:600">✅ Kedua file siap — klik tombol untuk memproses</div>', unsafe_allow_html=True)
 
@@ -854,13 +1027,20 @@ with bc2:
 # ══════════════════════════════════════════════════════════════════════════════
 if process:
     with st.spinner('🔄 Memproses dan mencocokkan data…'):
-        # Use hyperlink-aware reader for file2 if it's xlsx
         if file2.name.lower().endswith(('.xlsx', '.xls')):
             raw_df2 = read_xlsx_with_hyperlinks(file2)
         else:
             raw_df2 = read_file(file2)
 
-        df1 = load_file1(read_file(file1))
+        # Load File 1 — upload or paste
+        if _current_mode == 'upload':
+            df1 = load_file1(read_file(_f1_widget))
+        else:
+            df1 = parse_paste_to_df1(_paste_nopol_val, _paste_kq_val)
+            if df1.empty:
+                st.error("❌ Data paste tidak valid. Pastikan NOPOL dan Kuantum terisi dengan benar.")
+                st.stop()
+
         df2 = load_file2(raw_df2)
 
         if df1.empty or df2.empty: st.stop()
