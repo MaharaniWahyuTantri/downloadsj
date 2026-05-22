@@ -905,7 +905,7 @@ st.markdown("""
 st.markdown("""
 <div class="hero">
   <div class="hero-eyebrow">✦ Logistics · Automation · Documents ✦</div>
-  <div class="hero-title">Download Surat Jalan<br><span>Ratusan File, Sekali Klik</span></div>
+  <div class="hero-title">Download Surat Jalan<br><span></span></div>
   <div class="hero-desc">Cocokkan NOPOL + Kuantum dari dua file, unduh ratusan dokumen besar sekaligus tanpa crash. Cache berbasis disk — tidak memborosi RAM. ZIP & PDF gabungan langsung ke disk.</div>
   <div class="hero-badges">
     <span class="hero-badge">📦 Bulk ZIP</span>
