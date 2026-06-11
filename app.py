@@ -475,7 +475,7 @@ def norm_nopol(v):
     return re.sub(r'\s+', ' ', s).strip()
 
 def norm_kuantum(v):
-    try: return int(float(str(v).replace(',', '.').strip()))
+    try: return round(float(str(v).replace(',', '.').strip()), 3)
     except: return None
 
 def find_col(df, kws):
