@@ -1291,8 +1291,15 @@ if st.session_state.result_df is not None:
             sel_col1, sel_col2, sel_col3, sel_col4 = st.columns([2, 2, 2, 6])
             with sel_col1:
                 if st.button('☑️ Pilih Semua', use_container_width=True, key='sel_all_t3'):
+                    # Per NOPOL target: only select the first (best) suggestion
+                    seen_item = set()
                     for si in all_saran_items:
-                        st.session_state.saran_selected[si['key']] = True
+                        if si['item_idx'] not in seen_item:
+                            st.session_state.saran_selected[si['key']] = True
+                            seen_item.add(si['item_idx'])
+                        else:
+                            # Deselect lower-ranked suggestions so only #1 is ticked
+                            st.session_state.saran_selected[si['key']] = False
                     st.rerun()
             with sel_col2:
                 if st.button('☐ Batalkan Semua', use_container_width=True, key='desel_all_t3'):
