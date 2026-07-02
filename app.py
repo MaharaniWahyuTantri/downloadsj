@@ -1,11 +1,5 @@
 import streamlit as st
 import pandas as pd
-import requests
-import zipfile
-import io
-import re
-import time
-import os
 import tempfile
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from difflib import SequenceMatcher
