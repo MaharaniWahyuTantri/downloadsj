@@ -1,5 +1,11 @@
 import streamlit as st
 import pandas as pd
+import requests
+import zipfile
+import io
+import re
+import time
+import os
 import tempfile
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from difflib import SequenceMatcher
@@ -960,24 +966,12 @@ if process:
     n_dup_groups = (len(dup_df[['nopol','kuantum']].drop_duplicates()) if not dup_df.empty else 0)
     n_mirip = sum(1 for x in missing_detail if x['kategori'] == 'nopol_mirip')
     st.balloons()
-    st.success(f"✅ {len(found)} link ditemukan dari {len(df1)} data · {len(missing)} tidak match · {n_dup_groups} duplikat · {n_mirip} saran mirip")
+    st.success(f" {len(found)} link ditemukan dari {len(df1)} data · {len(missing)} tidak match · {n_dup_groups} duplikat · {n_mirip} saran mirip")
     st.rerun()
 
 # ══════════════════════════════════════════════════════════════════════════════
 # RESULTS
 # ══════════════════════════════════════════════════════════════════════════════
-if st.session_state.result_df is not None:
-    found = st.session_state.result_df; missing = st.session_state.missing_df
-    nopol_diff = st.session_state.nopol_diff_df; nopol_miss = st.session_state.nopol_miss_df
-    df2_all = st.session_state.df2_debug; df1_all = st.session_state.df1_debug
-    dup_df = st.session_state.dup_df if st.session_state.dup_df is not None else pd.DataFrame()
-    missing_detail = st.session_state.missing_detail or []
-    n_match = len(found); n_diff_k = len(nopol_diff) if nopol_diff is not None else 0
-    n_miss_nopol = len(nopol_miss) if nopol_miss is not None else 0; n_all_miss = len(missing)
-    n_dup_groups = (len(dup_df[['nopol','kuantum']].drop_duplicates()) if not dup_df.empty else 0)
-    n_dup_rows = len(dup_df) if not dup_df.empty else 0
-    n_nopol_mirip = sum(1 for x in missing_detail if x['kategori'] == 'nopol_mirip')
-    match_rate = int(n_match / max(len(df1_all), 1) * 100) if df1_all is not None else 0
 
     st.markdown('<div class="sec-hdr"><span class="sec-badge">02</span><span class="sec-title">Ringkasan Hasil</span><span class="sec-line"></span></div>', unsafe_allow_html=True)
     st.markdown(f"""
@@ -1000,11 +994,11 @@ if st.session_state.result_df is not None:
     st.markdown('<div class="sec-hdr"><span class="sec-badge">03</span><span class="sec-title">Detail & Download</span><span class="sec-line"></span></div>', unsafe_allow_html=True)
 
     tab1, tab_dup, tab2, tab3, tab4 = st.tabs([
-        f"✅ Match ({n_match})",
-        f"🔁 Duplikat ({n_dup_groups}g · {n_dup_rows}b)",
-        f"⚠️ Kuantum Beda ({n_diff_k})",
-        f"❌ NOPOL Tidak Ada ({n_miss_nopol})",
-        f"🔴 Semua Tidak Match ({n_all_miss})",
+        f"Match ({n_match})",
+        f"Duplikat ({n_dup_groups}g · {n_dup_rows}b)",
+        f"Kuantum Beda ({n_diff_k})",
+        f"NOPOL Tidak Ada ({n_miss_nopol})",
+        f"Semua Tidak Match ({n_all_miss})",
     ])
 
     # ── TAB 1: MATCH ─────────────────────────────────────────────────────
@@ -1022,19 +1016,19 @@ if st.session_state.result_df is not None:
                 st.markdown(f'<div style="padding:10px 4px;font-size:.78rem;color:#9c9790">Menampilkan <b style="color:#1a1917">{len(disp)}</b> dari <b style="color:#1a1917">{len(found)}</b> surat jalan</div>', unsafe_allow_html=True)
 
             ac1, ac2, ac3, ac4 = st.columns([2, 2, 2, 6])
-            with ac1: do_zip = st.button('📦 Download ZIP', use_container_width=True, key='btn_zip')
-            with ac2: do_merge = st.button('📄 Gabung PDF', use_container_width=True, key='btn_merge')
-            with ac3: do_preload = st.button('⚡ Pre-load', use_container_width=True, key='btn_preload')
+            with ac1: do_zip = st.button('Download ZIP', use_container_width=True, key='btn_zip')
+            with ac2: do_merge = st.button('Gabung PDF', use_container_width=True, key='btn_merge')
+            with ac3: do_preload = st.button('Pre-load', use_container_width=True, key='btn_preload')
             with ac4:
                 n_c = sum(1 for _, r in disp.iterrows() if r['surat_jalan'] in st.session_state.dl_cache)
                 pct_c = int(n_c / max(len(disp), 1) * 100)
                 color = "#157a3c" if pct_c == 100 else ("#b45309" if pct_c > 0 else "#9c9790")
-                st.markdown(f'<div class="cache-info">🗃️ Cache: <b style="color:{color}">{n_c}/{len(disp)}</b> ({pct_c}%) {"· ✅ Semua siap" if pct_c==100 else "· Gunakan ⚡ Pre-load untuk mempercepat"}</div>', unsafe_allow_html=True)
+                st.markdown(f'<div class="cache-info">🗃️ Cache: <b style="color:{color}">{n_c}/{len(disp)}</b> ({pct_c}%) {"· All ready" if pct_c==100 else "· Gunakan ⚡ Pre-load untuk mempercepat"}</div>', unsafe_allow_html=True)
 
             if do_preload and len(disp) > 0:
                 needed = [r['surat_jalan'] for _, r in disp.iterrows() if r['surat_jalan'] not in st.session_state.dl_cache]
                 if not needed:
-                    st.success('✅ Semua sudah di cache!')
+                    st.success('All sudah di cache!')
                 else:
                     snap = dict(st.session_state.dl_cache)
                     tasks_pre = [{'idx': i, 'nopol': r['nopol'], 'kuantum': int(r['kuantum']), 'link': r['surat_jalan'], 'dup_label': ''} for i, r in disp.iterrows() if r['surat_jalan'] not in snap]
@@ -1047,7 +1041,7 @@ if st.session_state.result_df is not None:
                             else: fail_n += 1
                             done_n += 1; pb.progress(done_n / len(tasks_pre))
                             stxt.markdown(f"Pre-load **{done_n}/{len(tasks_pre)}** — ✅ {ok_n} · ❌ {fail_n}")
-                    st.session_state.dl_cache.update(nc); stxt.success(f'✅ Selesai: {ok_n} berhasil, {fail_n} gagal')
+                    st.session_state.dl_cache.update(nc); stxt.success(f'Selesai: {ok_n} berhasil, {fail_n} gagal')
 
             if do_zip and len(disp) > 0:
                 rows_dl = [{'idx': i, 'nopol': r['nopol'], 'kuantum': int(r['kuantum']), 'link': r['surat_jalan'], 'dup_label': ''} for i, r in disp.iterrows()]
