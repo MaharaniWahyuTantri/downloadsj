@@ -972,6 +972,18 @@ if process:
 # ══════════════════════════════════════════════════════════════════════════════
 # RESULTS
 # ══════════════════════════════════════════════════════════════════════════════
+if st.session_state.result_df is not None:
+    found = st.session_state.result_df; missing = st.session_state.missing_df
+    nopol_diff = st.session_state.nopol_diff_df; nopol_miss = st.session_state.nopol_miss_df
+    df2_all = st.session_state.df2_debug; df1_all = st.session_state.df1_debug
+    dup_df = st.session_state.dup_df if st.session_state.dup_df is not None else pd.DataFrame()
+    missing_detail = st.session_state.missing_detail or []
+    n_match = len(found); n_diff_k = len(nopol_diff) if nopol_diff is not None else 0
+    n_miss_nopol = len(nopol_miss) if nopol_miss is not None else 0; n_all_miss = len(missing)
+    n_dup_groups = (len(dup_df[['nopol','kuantum']].drop_duplicates()) if not dup_df.empty else 0)
+    n_dup_rows = len(dup_df) if not dup_df.empty else 0
+    n_nopol_mirip = sum(1 for x in missing_detail if x['kategori'] == 'nopol_mirip')
+    match_rate = int(n_match / max(len(df1_all), 1) * 100) if df1_all is not None else 0
 
     st.markdown('<div class="sec-hdr"><span class="sec-badge">02</span><span class="sec-title">Ringkasan Hasil</span><span class="sec-line"></span></div>', unsafe_allow_html=True)
     st.markdown(f"""
